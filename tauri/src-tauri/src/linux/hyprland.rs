@@ -94,6 +94,45 @@ pub struct ActiveWindow {
     pub title: String,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Monitor {
+    /// Logical x of the monitor's top-left in the global layout.
+    pub x: i32,
+    /// Logical y of the monitor's top-left in the global layout.
+    pub y: i32,
+    /// Mode width in *physical* pixels — divide by `scale` for logical.
+    pub width: i32,
+    /// Mode height in *physical* pixels — divide by `scale` for logical.
+    pub height: i32,
+    pub scale: f32,
+    pub focused: bool,
+}
+
+impl Monitor {
+    /// Size in the logical coordinate space window rules are expressed in.
+    pub fn logical_size(&self) -> (i32, i32) {
+        let scale = if self.scale > 0.0 { self.scale } else { 1.0 };
+        (
+            (self.width as f32 / scale).round() as i32,
+            (self.height as f32 / scale).round() as i32,
+        )
+    }
+}
+
+/// The monitor the user is currently working on, which is where the
+/// dictation pill belongs.
+pub fn focused_monitor() -> Result<Monitor, String> {
+    let raw = request("j/monitors")?;
+    let monitors: Vec<Monitor> = serde_json::from_str(&raw)
+        .map_err(|e| format!("Hyprland IPC: could not parse `monitors` reply: {e}"))?;
+    monitors
+        .iter()
+        .find(|m| m.focused)
+        .or_else(|| monitors.first())
+        .cloned()
+        .ok_or_else(|| "Hyprland reported no monitors".to_string())
+}
+
 /// The window that had keyboard focus at the moment of the call.
 ///
 /// Returns `Ok(None)` — not an error — when nothing is focused. An empty
@@ -204,29 +243,34 @@ pub fn focus_address(address: &str) -> Result<(), String> {
 /// of whatever the user was dictating into — which would break dictation
 /// even before the paste lands.
 ///
-/// Placement rides along as a rule rather than a separate dispatch. That is
-/// not just tidier: `window.move` acts on the *focused* window, and the pill
-/// is precisely the window that will never be focused. Hyprland's percentage
-/// syntax also resolves against whichever monitor the pill maps on, so
-/// `50%- 4%` follows the user between displays with no scale arithmetic on
-/// our side — `50%-` means "half the monitor, less half the window", i.e.
-/// centred.
-pub fn apply_overlay_rules(title_regex: &str) -> Result<(), String> {
-    const PLACEMENT: &str = "50%- 4%";
-
+/// Placement rides along as a rule rather than a separate dispatch, because
+/// there is no dispatch that could do it: `window.move` acts on the
+/// *focused* window, and the pill is by construction the one window that
+/// will never be focused.
+///
+/// `x`/`y` are absolute logical pixels the caller computed from the target
+/// monitor. Hyprland's `50%-` percentage syntax would express "centred"
+/// directly, but only in the legacy string rule form — the Lua binding types
+/// `move` as an expression vector that evaluates arithmetic (`"1440*0.04"`)
+/// and silently falls back to default placement on a percentage. Plain
+/// integers are the one form both dialects agree on.
+///
+/// Re-registering for a new position is how the pill follows the user
+/// between monitors; the most recently registered rule wins.
+pub fn apply_overlay_rules(title_regex: &str, x: i32, y: i32) -> Result<(), String> {
     match dialect() {
         Dialect::Lua => {
             let lua = format!(
                 "hl.window_rule({{ match = {{ title = {title} }}, \
-                 float = true, pin = true, no_focus = true, no_border = true, \
-                 no_shadow = true, no_blur = true, no_anim = true, move = {placement} }})",
+                 float = true, pin = true, no_focus = true, border_size = 0, \
+                 no_shadow = true, no_blur = true, no_anim = true, \
+                 move = {{ {x}, {y} }} }})",
                 title = lua_string(title_regex),
-                placement = lua_string(PLACEMENT),
             );
             hyprctl(&["repl", &lua]).map(|_| ())
         }
         Dialect::Legacy => {
-            let placement = format!("move {PLACEMENT}");
+            let placement = format!("move {x} {y}");
             let mut failures = Vec::new();
             for rule in [
                 "float",
@@ -283,4 +327,40 @@ mod tests {
         assert_eq!(lua_string("a]]b]=]c"), "[==[a]]b]=]c]==]");
     }
 
+    #[test]
+    fn logical_size_divides_by_scale() {
+        let monitor = Monitor { x: 0, y: 0, width: 3840, height: 2160, scale: 1.5, focused: true };
+        assert_eq!(monitor.logical_size(), (2560, 1440));
+    }
+
+    #[test]
+    fn logical_size_survives_a_bogus_scale() {
+        let monitor = Monitor { x: 0, y: 0, width: 1920, height: 1080, scale: 0.0, focused: true };
+        assert_eq!(monitor.logical_size(), (1920, 1080));
+    }
+
+    /// The IPC contract, against a live compositor.
+    ///
+    /// Worth running deliberately after any Hyprland upgrade. The query
+    /// socket is stable, but the mutation dialect is not — 0.56 replaced
+    /// `keyword` and string `dispatch` with a Lua runtime — and
+    /// `hl.window_rule` ignores keys it does not recognise *without*
+    /// reporting an error, so a renamed rule key would silently cost the
+    /// overlay its behaviour with nothing in any log.
+    #[test]
+    #[ignore = "needs a live Hyprland session"]
+    fn talks_to_a_live_compositor() {
+        assert!(is_active(), "not running under Hyprland");
+
+        let monitor = focused_monitor().expect("read the focused monitor");
+        let (width, height) = monitor.logical_size();
+        assert!(width > 0 && height > 0, "monitor reported a zero logical size");
+
+        // An empty desktop legitimately has no active window, so only the
+        // call is asserted, not its content.
+        active_window().expect("query the active window");
+
+        apply_overlay_rules("^(Voicebox Dictate)$", monitor.x, monitor.y)
+            .expect("register the overlay window rules");
+    }
 }

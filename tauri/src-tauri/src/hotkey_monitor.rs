@@ -257,6 +257,8 @@ fn apply_effect(app: &AppHandle, effect: Effect) {
                 // default and does not ask the client's opinion.
                 #[cfg(not(target_os = "linux"))]
                 crate::position_dictate_window(&window);
+                #[cfg(target_os = "linux")]
+                crate::refresh_dictate_overlay_rules();
                 let _ = window.show();
                 let payload = serde_json::json!({ "focus": focus });
                 let _ = window.emit("dictate:start", payload);

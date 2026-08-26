@@ -32,7 +32,6 @@ const DICTATE_WINDOW_HEIGHT: f64 = 64.0;
 const DICTATE_WINDOW_TITLE: &str = "Voicebox Dictate";
 
 /// How far down the monitor the pill sits, as a fraction of its height.
-#[cfg(not(target_os = "linux"))]
 const DICTATE_TOP_MARGIN_RATIO: f64 = 0.04;
 
 /// The pill's title as an anchored Hyprland rule pattern.
@@ -43,6 +42,55 @@ const DICTATE_TOP_MARGIN_RATIO: f64 = 0.04;
 /// contains the phrase.
 #[cfg(target_os = "linux")]
 const DICTATE_TITLE_REGEX: &str = "^(Voicebox Dictate)$";
+
+/// Re-assert the pill's overlay window rules for the monitor the user is on.
+///
+/// Called before every show rather than once at startup, because the rule
+/// carries the pill's position and the right position depends on which
+/// monitor has focus *now*. Hyprland resolves overlapping rules last-wins,
+/// so re-registering is the supported way to move it.
+///
+/// The last-registered placement is remembered and the call skipped when it
+/// has not changed, which keeps a single-monitor session at exactly one
+/// registration for the life of the process instead of one per utterance.
+#[cfg(target_os = "linux")]
+pub(crate) fn refresh_dictate_overlay_rules() {
+    use std::sync::Mutex;
+    static LAST: Mutex<Option<(i32, i32)>> = Mutex::new(None);
+
+    if !linux::hyprland::is_active() {
+        // Any other Wayland compositor: no rule mechanism to use. The pill
+        // still shows, wherever the compositor decides to put it.
+        return;
+    }
+
+    let monitor = match linux::hyprland::focused_monitor() {
+        Ok(monitor) => monitor,
+        Err(e) => {
+            eprintln!("[voicebox] could not read the focused monitor: {e}");
+            return;
+        }
+    };
+    let (monitor_width, monitor_height) = monitor.logical_size();
+    // The pill is fixed-size and non-resizable, so its logical size is the
+    // constant it was built with — no need to round-trip through the
+    // window's physical size and scale factor.
+    let x = monitor.x + (monitor_width - DICTATE_WINDOW_WIDTH as i32) / 2;
+    let y = monitor.y + (monitor_height as f64 * DICTATE_TOP_MARGIN_RATIO) as i32;
+
+    let mut last = match LAST.lock() {
+        Ok(last) => last,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if *last == Some((x, y)) {
+        return;
+    }
+
+    match linux::hyprland::apply_overlay_rules(DICTATE_TITLE_REGEX, x, y) {
+        Ok(()) => *last = Some((x, y)),
+        Err(e) => eprintln!("[voicebox] could not register the dictation pill's window rules: {e}"),
+    }
+}
 
 /// Park the pill at top-centre of the monitor the user is working on.
 ///
@@ -99,18 +147,12 @@ fn build_dictate_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
     // `always_on_top`, `visible_on_all_workspaces` and `skip_taskbar` above
     // are all X11-era GTK hints that Wayland drops on the floor, so on
     // Hyprland the overlay role has to be re-asserted as a compositor window
-    // rule instead. Registered here, once, against the title this window was
-    // just given — before the first show(), so the rules are already in place
-    // when the surface maps and the pill never flashes as a focused tile.
+    // rule instead. Registered here, against the title this window was just
+    // given — before the first show(), so the rules are already in place when
+    // the surface maps and the pill never flashes as a focused tile.
     #[cfg(target_os = "linux")]
-    if linux::hyprland::is_active() {
-        if let Err(e) = linux::hyprland::apply_overlay_rules(DICTATE_TITLE_REGEX) {
-            eprintln!("[voicebox] could not register the dictation pill's window rules: {e}");
-        }
-    }
+    refresh_dictate_overlay_rules();
 
-    // On Wayland this is a no-op until the surface maps; show_dictate_window
-    // places it after show() instead.
     #[cfg(not(target_os = "linux"))]
     position_dictate_window(&window);
 
@@ -158,11 +200,14 @@ pub fn show_dictate_window(app: &tauri::AppHandle) {
     #[cfg(not(target_os = "linux"))]
     let _ = window.set_ignore_cursor_events(false);
 
-    // AppKit and Win32 let a hidden window be moved, so positioning first
-    // avoids a visible jump. On Wayland the compositor applies the placement
-    // rule as the surface maps, so there is nothing to do around show().
+    // Both platforms place before show(), just through different mechanisms:
+    // AppKit and Win32 move the hidden window directly, while Wayland needs
+    // the rule to be in place for the compositor to apply as the surface
+    // maps. Either way the pill never appears in the wrong spot first.
     #[cfg(not(target_os = "linux"))]
     position_dictate_window(&window);
+    #[cfg(target_os = "linux")]
+    refresh_dictate_overlay_rules();
     let _ = window.show();
 }
 

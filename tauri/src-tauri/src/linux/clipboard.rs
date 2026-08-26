@@ -185,3 +185,86 @@ pub fn content_token() -> Result<i64, String> {
     }
     Ok(hasher.finish() as i64)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exercises the exact save → write → restore sequence `paste_final_text`
+    /// runs, against the real compositor.
+    ///
+    /// Ignored by default for two reasons: it needs a live Wayland session
+    /// with a data-control protocol, and it takes over the developer's
+    /// clipboard while it runs. Run it deliberately with
+    /// `cargo test -- --ignored`.
+    #[test]
+    #[ignore = "needs a live Wayland session; takes over the clipboard"]
+    fn save_write_restore_round_trips() {
+        assert!(
+            is_available(),
+            "compositor exposes no clipboard data-control protocol"
+        );
+
+        const ORIGINAL: &str = "voicebox-test-original";
+        const STAGED: &str = "voicebox-test-staged";
+
+        write_text(ORIGINAL).expect("seed the clipboard");
+        let snapshot = read_all().expect("snapshot the clipboard");
+        let before = content_token().expect("token before staging");
+        assert!(
+            snapshot.iter().any(|(_, bytes)| bytes == ORIGINAL.as_bytes()),
+            "snapshot did not capture the seeded text: {:?}",
+            snapshot.iter().map(|(m, _)| m).collect::<Vec<_>>()
+        );
+
+        write_text(STAGED).expect("stage the transcript");
+        let after_write = content_token().expect("token after staging");
+        assert_ne!(
+            before, after_write,
+            "staging different text must change the token, or the caller \
+             cannot tell its own write apart from someone else's"
+        );
+
+        // The safety check `paste_final_text` performs before restoring.
+        assert_eq!(
+            content_token().expect("token before restore"),
+            after_write,
+            "an untouched clipboard must read back as unchanged"
+        );
+
+        write_all(&snapshot).expect("restore the clipboard");
+        assert_eq!(
+            content_token().expect("token after restore"),
+            before,
+            "restore must put the user's original content back"
+        );
+    }
+
+    /// The staged text has to be readable by *other* clients, which is the
+    /// whole point and is not what a same-process read-back proves: on
+    /// Wayland the owner serves the bytes on demand, so a copy that never
+    /// answers a request would still read back fine from inside this process.
+    #[test]
+    #[ignore = "needs a live Wayland session; takes over the clipboard"]
+    fn staged_text_is_visible_to_other_processes() {
+        const MARKER: &str = "voicebox-test-cross-process";
+        write_text(MARKER).expect("stage text");
+
+        let output = std::process::Command::new("wl-paste")
+            .arg("--no-newline")
+            .output()
+            .expect("run wl-paste — install wl-clipboard or skip this test");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), MARKER);
+    }
+
+    /// An empty clipboard is a normal state, not an error — dictating before
+    /// having copied anything must not fail the paste.
+    #[test]
+    #[ignore = "needs a live Wayland session; takes over the clipboard"]
+    fn an_empty_clipboard_reads_as_empty_rather_than_erroring() {
+        assert!(is_available());
+        copy::clear(copy::ClipboardType::Regular, copy::Seat::All).expect("clear");
+        assert_eq!(read_all().expect("read an empty clipboard"), Vec::new());
+        assert_eq!(content_token().expect("token for an empty clipboard"), 0);
+    }
+}

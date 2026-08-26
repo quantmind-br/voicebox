@@ -282,4 +282,155 @@ mod tests {
         assert_eq!(accelerator_for_class(Some("code")), Accelerator::Standard);
         assert_eq!(accelerator_for_class(None), Accelerator::Standard);
     }
+
+    /// At least one injection mechanism must be usable, and the uinput path
+    /// must get as far as creating its device.
+    ///
+    /// Deliberately stops short of emitting a keystroke: a test that pressed
+    /// Ctrl+V would type into whatever window happened to hold focus on the
+    /// developer's desktop. Device creation is the part that actually fails
+    /// in the field — permissions, missing module — and it is silent.
+    #[test]
+    #[ignore = "needs a live session with wtype or /dev/uinput"]
+    fn an_injection_mechanism_is_usable() {
+        assert!(
+            is_available(),
+            "no paste mechanism available: {}",
+            unavailable_reason()
+        );
+
+        if uinput_is_writable() {
+            let device = build_device();
+            assert!(
+                device.is_ok(),
+                "/dev/uinput is writable but the virtual keyboard would not build: {:?}",
+                device.err()
+            );
+        }
+    }
+
+    /// The whole pipeline, for real: stage text on the clipboard, synthesise
+    /// the accelerator, and confirm the bytes arrived inside a foreign
+    /// application.
+    ///
+    /// Everything upstream of this can pass while the feature is still
+    /// broken — the clipboard round-trip only proves we can talk to
+    /// ourselves, and a `wtype` exit code of 0 only proves the process ran.
+    /// Neither shows that a keystroke reached another client, which is the
+    /// one thing auto-paste is for.
+    ///
+    /// `foot` is the target because a terminal turns a paste into observable
+    /// bytes on a pipe; `head -n 1` then makes the read block until a newline
+    /// arrives rather than racing the paste. Being a terminal also exercises
+    /// the Ctrl+Shift+V branch, which is the one that would silently insert a
+    /// control character if the accelerator choice were wrong.
+    ///
+    /// The explicit re-focus is not test scaffolding — it is the step
+    /// `paste_final_text` performs before every paste, and skipping it sends
+    /// the keystroke to whatever the compositor happened to focus instead.
+    ///
+    /// Requires `foot` and steals focus while it runs — so do not type while
+    /// it does. Focus is pinned to the target for a couple of seconds, which
+    /// means a stray keypress from the operator lands in the assertion as a
+    /// prefix on the marker. That is the test being hijacked, not the paste
+    /// pipeline failing.
+    #[test]
+    #[ignore = "needs a live Wayland session, foot, and steals focus"]
+    fn pastes_into_a_foreign_window() {
+        use std::io::Read as _;
+
+        const MARKER: &str = "voicebox-e2e-paste-marker";
+        const TITLE: &str = "VoiceboxPasteTarget";
+        let sink = std::env::temp_dir().join("voicebox-e2e-paste.txt");
+        let _ = std::fs::remove_file(&sink);
+
+        // Pin focus to the target for the duration. Not a workaround for a
+        // product bug: `input:follow_mouse` is on by default, so the pointer
+        // resting over the terminal that launched `cargo test` drags focus
+        // back the instant anything moves it, and the keystroke lands there
+        // instead. A real user's pointer is not doing that mid-dictation.
+        let _ = Command::new("hyprctl")
+            .args([
+                "repl",
+                &format!(
+                    "hl.window_rule({{ match = {{ title = [[^({TITLE})$]] }}, stay_focused = true }})"
+                ),
+            ])
+            .status();
+
+        let mut terminal = Command::new("foot")
+            .arg(format!("--title={TITLE}"))
+            .arg("--")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!("head -n 1 > {}", sink.display()))
+            .spawn()
+            .expect("spawn foot — install it or skip this test");
+
+        std::thread::sleep(Duration::from_millis(1500));
+
+        let outcome = find_window_by_title(TITLE)
+            .ok_or_else(|| format!("no window titled {TITLE:?} appeared"))
+            .and_then(|(address, class)| {
+                // The production entry point, with the snapshot shape
+                // `capture_focus` would have produced.
+                crate::focus_capture::activate(&crate::focus_capture::FocusSnapshot {
+                    pid: 0,
+                    bundle_id: Some(class.clone()),
+                    role: None,
+                    window_id: Some(address),
+                })?;
+                std::thread::sleep(Duration::from_millis(800));
+                crate::linux::clipboard::write_text(MARKER)?;
+                send_paste(accelerator_for_class(Some(&class)))?;
+                // `head -n 1` blocks until a newline, so the paste alone
+                // never reaches the file. The gap matters: Return arriving
+                // first ends the read on an empty line, which looks exactly
+                // like a paste that delivered nothing.
+                std::thread::sleep(Duration::from_millis(600));
+                Command::new("wtype")
+                    .args(["-k", "Return"])
+                    .status()
+                    .map(|_| ())
+                    .map_err(|e| format!("could not send Return: {e}"))
+            });
+
+        let mut written = String::new();
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(100));
+            if let Ok(mut file) = std::fs::File::open(&sink) {
+                written.clear();
+                let _ = file.read_to_string(&mut written);
+                if !written.trim().is_empty() {
+                    break;
+                }
+            }
+        }
+
+        let _ = terminal.kill();
+        let _ = terminal.wait();
+        let _ = std::fs::remove_file(&sink);
+
+        outcome.expect("focus, stage and paste");
+        assert_eq!(
+            written.trim(),
+            MARKER,
+            "the synthesised accelerator did not deliver the clipboard into foot"
+        );
+    }
+
+    /// `(address, class)` of the window with this exact title.
+    fn find_window_by_title(title: &str) -> Option<(String, String)> {
+        let output = Command::new("hyprctl").args(["clients", "-j"]).output().ok()?;
+        let clients: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).ok()?;
+        clients.iter().find_map(|client| {
+            if client.get("title")?.as_str()? != title {
+                return None;
+            }
+            Some((
+                client.get("address")?.as_str()?.to_string(),
+                client.get("class")?.as_str()?.to_string(),
+            ))
+        })
+    }
 }
