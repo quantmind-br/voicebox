@@ -43,6 +43,60 @@ const DICTATE_TOP_MARGIN_RATIO: f64 = 0.04;
 #[cfg(target_os = "linux")]
 const DICTATE_TITLE_REGEX: &str = "^(Voicebox Dictate)$";
 
+/// Let a webview reach the microphone.
+///
+/// WebKitGTK ships with media-stream support switched off, and denies every
+/// permission request it is not explicitly asked to grant — `getUserMedia`
+/// rejects with `NotAllowedError` before any OS-level prompt happens. macOS
+/// and Windows have no equivalent because their webviews inherit the host
+/// process's permissions.
+///
+/// Both settings are **per webview**, not per process, so every window that
+/// records has to be configured individually. Missing one does not fail
+/// loudly: the window simply cannot use the microphone, and the only symptom
+/// is a `NotAllowedError` from deep inside the recording hook.
+///
+/// Call this for any new webview window that records audio.
+#[cfg(target_os = "linux")]
+fn allow_microphone(window: &tauri::WebviewWindow) {
+    let label = window.label().to_string();
+    let result = window.with_webview(move |webview| {
+        use webkit2gtk::glib::ObjectExt;
+        use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
+
+        let wk_webview = webview.inner();
+
+        if let Some(settings) = WebViewExt::settings(&wk_webview) {
+            settings.set_enable_media_stream(true);
+        }
+
+        // Auto-grant, but only for the origins we serve ourselves. A webview
+        // that navigated somewhere else must not inherit the grant.
+        wk_webview.connect_permission_request(
+            move |webview, request: &webkit2gtk::PermissionRequest| {
+                if request.is::<webkit2gtk::UserMediaPermissionRequest>() {
+                    let uri = WebViewExt::uri(webview).unwrap_or_default();
+                    let is_trusted = uri.starts_with("tauri://")
+                        || uri.starts_with("https://tauri.localhost")
+                        || uri.starts_with("http://localhost")
+                        || uri.starts_with("http://127.0.0.1");
+                    if is_trusted {
+                        request.allow();
+                        return true;
+                    }
+                    request.deny();
+                    return true;
+                }
+                false
+            },
+        );
+    });
+
+    if let Err(e) = result {
+        eprintln!("[voicebox] could not enable the microphone for window {label:?}: {e}");
+    }
+}
+
 /// Re-assert the pill's overlay window rules for the monitor the user is on.
 ///
 /// Called before every show rather than once at startup, because the rule
@@ -152,6 +206,11 @@ fn build_dictate_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
     // the surface maps and the pill never flashes as a focused tile.
     #[cfg(target_os = "linux")]
     refresh_dictate_overlay_rules();
+
+    // The pill is what records a dictation, so it needs the microphone in its
+    // own right — the grant on the main window does not carry over.
+    #[cfg(target_os = "linux")]
+    allow_microphone(&window);
 
     #[cfg(not(target_os = "linux"))]
     position_dictate_window(&window);
@@ -1603,40 +1662,14 @@ pub fn run() {
                 }
             }
 
-            // Enable microphone access on Linux (WebKitGTK denies getUserMedia by default)
+            // Enable microphone access on Linux (WebKitGTK denies getUserMedia
+            // by default). The dictate pill grants itself in
+            // build_dictate_window, since it may be built after this point.
             #[cfg(target_os = "linux")]
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.with_webview(|webview| {
-                        use webkit2gtk::{WebViewExt, SettingsExt, PermissionRequestExt};
-                        use webkit2gtk::glib::ObjectExt;
-                        let wk_webview = webview.inner();
-
-                        // Enable media stream support in WebKitGTK settings
-                        if let Some(settings) = WebViewExt::settings(&wk_webview) {
-                            settings.set_enable_media_stream(true);
-                        }
-
-                        // Auto-grant UserMediaPermissionRequest (microphone access)
-                        // Only for trusted local origins (Tauri dev server or custom protocol)
-                        wk_webview.connect_permission_request(move |webview, request: &webkit2gtk::PermissionRequest| {
-                            if request.is::<webkit2gtk::UserMediaPermissionRequest>() {
-                                let uri = WebViewExt::uri(webview).unwrap_or_default();
-                                let is_trusted = uri.starts_with("tauri://")
-                                    || uri.starts_with("https://tauri.localhost")
-                                    || uri.starts_with("http://localhost")
-                                    || uri.starts_with("http://127.0.0.1");
-                                if is_trusted {
-                                    request.allow();
-                                    return true;
-                                }
-                                request.deny();
-                                return true;
-                            }
-                            false
-                        });
-                    });
+                    allow_microphone(&window);
                 }
             }
 
