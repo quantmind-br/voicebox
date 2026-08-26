@@ -99,7 +99,7 @@ The two cloud incumbents sit on opposite halves of the voice I/O loop — Eleven
 
 > **[View all binaries →](https://github.com/jamiepine/voicebox/releases/latest)**
 
-> **Linux** — Pre-built binaries are not yet available. See [voicebox.sh/linux-install](https://voicebox.sh/linux-install) for build-from-source instructions.
+> **Linux** — Pre-built binaries are not yet available. Build from source: see [docs/linux/arch-hyprland.md](docs/linux/arch-hyprland.md), which covers Arch + Hyprland (Wayland) including the pieces auto-paste needs on a compositor that, by design, lets no client read focus, raise a window, or synthesise a keystroke.
 
 > **Having trouble?** See the [Troubleshooting Guide](docs/content/docs/overview/troubleshooting.mdx) for common install, generation, model-download, and GPU issues.
 
@@ -386,7 +386,7 @@ Full API documentation available at `http://127.0.0.1:17493/docs`.
 
 | Feature                            | Description                                                              |
 | ---------------------------------- | ------------------------------------------------------------------------ |
-| **Windows / Linux auto-paste**     | Dictation paste parity — `SendInput` on Windows, `uinput` / AT-SPI on Linux |
+| **Windows auto-paste**             | Dictation paste parity via `SendInput`. Linux/Wayland is done — see [docs/linux/arch-hyprland.md](docs/linux/arch-hyprland.md) |
 | **STT engine expansion**           | Parakeet v3 and Qwen3-ASR joining Whisper — 50+ languages, better non-English quality |
 | **Pipeline routing**               | Configurable source → transform → sink chains with webhook + MCP sinks and a preset editor |
 | **Streaming transcription**        | WebSocket `/transcribe/stream` for partial transcripts as you speak      |

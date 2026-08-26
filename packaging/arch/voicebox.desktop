@@ -6,7 +6,8 @@ Comment=Local text-to-speech, voice cloning, and system-wide dictation
 Exec=voicebox %U
 Icon=voicebox
 Terminal=false
-Categories=AudioVideo;Audio;Utility;
+# One main category only, or the launcher can list the app twice.
+Categories=AudioVideo;Audio;
 Keywords=tts;speech;voice;dictation;transcription;clone;
 StartupNotify=true
 # Matches the app_id the GTK toplevel announces, so the compositor can pair

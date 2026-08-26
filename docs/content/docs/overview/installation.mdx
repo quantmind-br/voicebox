@@ -61,8 +61,17 @@ Voicebox is available for macOS and Windows, with Linux builds coming soon.
 ### Linux
 
 <Callout type="info">
-  Linux builds are coming soon. Currently blocked by GitHub runner disk space limitations.
+  Pre-built Linux binaries are still blocked on GitHub runner disk space, but
+  building from source is fully supported and every feature works, including
+  dictation auto-paste and the floating pill on Wayland.
 </Callout>
+
+See [Arch Linux + Hyprland](/docs/linux/arch-hyprland) for the full guide. In
+short: Wayland gives clients no way to read focus, raise a window, own the
+clipboard, or synthesise a keystroke, so auto-paste is rebuilt on the
+compositor's own IPC plus `wlr-data-control` and `wtype`. On a wlroots
+compositor (Hyprland, Sway) everything works; on GNOME, which implements
+neither, auto-paste is unavailable while the rest of the app is unaffected.
 
 ## First Launch
 
