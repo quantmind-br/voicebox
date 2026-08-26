@@ -9,6 +9,8 @@ import { useThemeSync } from '@/hooks/useThemeSync';
 import { apiClient } from '@/lib/api/client';
 import type { HealthResponse } from '@/lib/api/types';
 import { useChordSync } from '@/lib/hooks/useChordSync';
+import { useServerHealth } from '@/lib/hooks/useServer';
+import { queryClient } from '@/lib/queryClient';
 import { TOP_SAFE_AREA_PADDING } from '@/lib/constants/ui';
 import { cn } from '@/lib/utils/cn';
 import { usePlatform } from '@/platform/PlatformContext';
@@ -101,6 +103,30 @@ function MainApp() {
   // Replay the saved chord into the Rust hotkey listener every time
   // capture_settings resolves or the user edits the chord.
   useChordSync();
+
+  // Refetch everything the first time the backend actually answers.
+  //
+  // Hooks run before this component's loading-screen early return, so every
+  // query mounted above — useChordSync's capture settings among them — fires
+  // its first request while the sidecar is still unpacking and nothing is
+  // listening on the port. Those requests fail, and queries declared with
+  // `staleTime: Infinity` have no second chance of their own.
+  //
+  // Keyed on a real health response rather than on `serverReady`. That flag
+  // is set when `startServer` resolves, which happens before uvicorn is
+  // accepting connections — invalidating there just spends the retry on
+  // another connection refused, which is exactly what it did when this was
+  // written the other way round.
+  //
+  // `setServerUrl` already invalidates on a URL *change*, but a local server
+  // usually comes back on the same port, so that path does not fire here.
+  const { isSuccess: backendAnswered } = useServerHealth();
+  const refetchedOnConnect = useRef(false);
+  useEffect(() => {
+    if (!backendAnswered || refetchedOnConnect.current) return;
+    refetchedOnConnect.current = true;
+    queryClient.invalidateQueries();
+  }, [backendAnswered]);
 
   // Sync stored setting to Rust on startup
   useEffect(() => {

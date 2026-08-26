@@ -22,6 +22,20 @@ export function useCaptureSettings() {
     queryKey: CAPTURE_SETTINGS_KEY,
     queryFn: () => apiClient.getCaptureSettings(),
     staleTime: Infinity,
+    // Keep trying across a backend cold start. These two options are load
+    // bearing together: `staleTime: Infinity` means a query that fails has no
+    // second chance of its own, and the app's global `retry: 1` gives up
+    // about a second in — but the bundled sidecar unpacks a multi-gigabyte
+    // archive and loads models before it binds the port, which routinely
+    // takes far longer than that.
+    //
+    // Losing this particular query is not cosmetic: useChordSync bails out
+    // when settings are undefined, so the dictation hotkey silently never
+    // arms for the rest of the session. It looked intermittent because
+    // whether the backend won the race varied run to run, and opening the
+    // Captures page remounted the query and appeared to "fix" it.
+    retry: (failureCount) => failureCount < 12,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10_000),
   });
 
   const mutation = useMutation({

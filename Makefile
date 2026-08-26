@@ -99,11 +99,18 @@ $(SERVER_SRC) $(MCP_SRC): $(VENV) $(shell find backend -name '*.py' -not -path '
 	@echo "==> Freezing the Python sidecars (several GB, this takes a while)"
 	./scripts/build-server.sh
 
-build-app: $(BIN_SRC) ## Build the desktop app in release mode
-
-# The sidecars are a hard prerequisite, not a convenience: tauri-build fails
-# at configure time if the files named in externalBin are missing.
-$(BIN_SRC): $(SERVER_SRC) $(MCP_SRC)
+# Deliberately not a file target. Expressing "the app binary is up to date"
+# in make means listing every Rust and TypeScript source as a prerequisite,
+# and getting that list subtly wrong is silent: make skips the recipe, the
+# package is built from stale code, and nothing anywhere says so. That
+# already happened once here — a frontend-only change was packaged without
+# the frontend being rebuilt, and the fix appeared not to work.
+#
+# Cargo and Vite both do their own change detection and skip correctly, so
+# invoking them unconditionally costs a few seconds and removes the whole
+# class of problem. PyInstaller is the opposite — no incremental mode, ten
+# minutes a run — which is why build-server stays a file target.
+build-app: $(SERVER_SRC) $(MCP_SRC) ## Build the desktop app in release mode
 	@echo "==> Building the desktop app"
 	bun install --frozen-lockfile
 	cd tauri && bun run tauri build --no-bundle
@@ -112,6 +119,7 @@ $(BIN_SRC): $(SERVER_SRC) $(MCP_SRC)
 
 install: ## Install into $(DESTDIR)$(PREFIX)
 	@test -x "$(BIN_SRC)" || { echo "error: $(BIN_SRC) is missing — run 'make build' first" >&2; exit 1; }
+	@test "$(BIN_SRC)" -nt "$(SERVER_SRC)" || echo "note: the app binary is older than the sidecars; run 'make build' if that is unexpected" >&2
 	@test -x "$(SERVER_SRC)" || { echo "error: $(SERVER_SRC) is missing — run 'make build' first" >&2; exit 1; }
 	@echo "==> Installing into $(DESTDIR)$(PREFIX)"
 	@# Sidecars must land beside the main binary, and keep their bare names:
