@@ -1,5 +1,6 @@
+import { invoke } from '@tauri-apps/api/core';
 import { Check, Copy, Plug, Trash2, Waypoints } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,21 +15,48 @@ import { useProfiles } from '@/lib/hooks/useProfiles';
 import { useCaptureSettings } from '@/lib/hooks/useSettings';
 import { useServerStore } from '@/stores/serverStore';
 import { formatDate } from '@/lib/utils/format';
+import { isLinux, isWindows } from '@/lib/utils/platform';
+import { usePlatform } from '@/platform/PlatformContext';
 import { SettingRow, SettingSection } from './SettingRow';
 
-function getStdioShimCommand(): string {
-  if (typeof navigator === 'undefined') {
-    return '/Applications/Voicebox.app/Contents/MacOS/voicebox-mcp';
-  }
-
-  const platform = `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
-  if (platform.includes('win')) {
-    return 'C:\\Program Files\\Voicebox\\voicebox-mcp.exe';
-  }
-  if (platform.includes('linux')) {
-    return '/opt/voicebox/voicebox-mcp';
-  }
+/**
+ * Best-guess install path, used until the backend answers and on the web
+ * build where there is no local binary to point at.
+ *
+ * Only ever a placeholder: a real Linux install has no single home
+ * (`/usr/lib/voicebox` under a distro package, a mount point under AppImage,
+ * `target/debug` in dev) and neither does a portable Windows unzip. The
+ * authoritative path comes from `mcp_shim_path`, which asks the running
+ * process where it lives.
+ */
+function guessStdioShimCommand(): string {
+  if (isWindows()) return 'C:\\Program Files\\Voicebox\\voicebox-mcp.exe';
+  if (isLinux()) return '/usr/lib/voicebox/voicebox-mcp';
   return '/Applications/Voicebox.app/Contents/MacOS/voicebox-mcp';
+}
+
+function useStdioShimCommand(): string {
+  const platform = usePlatform();
+  const [command, setCommand] = useState(guessStdioShimCommand);
+
+  useEffect(() => {
+    if (!platform.metadata.isTauri) return;
+    let cancelled = false;
+    invoke<string>('mcp_shim_path')
+      .then((resolved) => {
+        if (!cancelled && resolved) setCommand(resolved);
+      })
+      .catch((err) => {
+        // Keep the guess — a wrong-but-plausible path is more useful in the
+        // copy snippet than an empty one.
+        console.warn('[mcp] could not resolve the shim path:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform.metadata.isTauri]);
+
+  return command;
 }
 
 /**
@@ -45,7 +73,7 @@ export function MCPPage() {
 
   const defaultProfileId = captureSettings?.default_playback_voice_id ?? '';
   const mcpUrl = `${serverUrl}/mcp`;
-  const stdioShimCommand = getStdioShimCommand();
+  const stdioShimCommand = useStdioShimCommand();
 
   const [newClientId, setNewClientId] = useState('');
   const [newLabel, setNewLabel] = useState('');

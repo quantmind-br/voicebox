@@ -79,12 +79,6 @@ fn request(payload: &str) -> Result<String, String> {
     Ok(reply)
 }
 
-fn query_json<T: serde::de::DeserializeOwned>(request_name: &str) -> Result<T, String> {
-    let raw = request(&format!("j/{request_name}"))?;
-    serde_json::from_str(&raw)
-        .map_err(|e| format!("Hyprland IPC: could not parse `{request_name}` reply: {e}"))
-}
-
 // ========================================================================
 // Query types
 // ========================================================================
@@ -98,31 +92,6 @@ pub struct ActiveWindow {
     pub pid: i32,
     pub class: String,
     pub title: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct Monitor {
-    /// Logical x of the monitor's top-left in the global layout.
-    pub x: i32,
-    /// Logical y of the monitor's top-left in the global layout.
-    pub y: i32,
-    /// Mode width in *physical* pixels — divide by `scale` for logical.
-    pub width: i32,
-    /// Mode height in *physical* pixels — divide by `scale` for logical.
-    pub height: i32,
-    pub scale: f32,
-    pub focused: bool,
-}
-
-impl Monitor {
-    /// Size in the coordinate space `movewindowpixel` and friends speak.
-    pub fn logical_size(&self) -> (i32, i32) {
-        let scale = if self.scale > 0.0 { self.scale } else { 1.0 };
-        (
-            (self.width as f32 / scale).round() as i32,
-            (self.height as f32 / scale).round() as i32,
-        )
-    }
 }
 
 /// The window that had keyboard focus at the moment of the call.
@@ -140,17 +109,6 @@ pub fn active_window() -> Result<Option<ActiveWindow>, String> {
     serde_json::from_str(&raw)
         .map(Some)
         .map_err(|e| format!("Hyprland IPC: could not parse `activewindow` reply: {e}"))
-}
-
-/// The monitor the cursor is on, which is where the dictation pill belongs.
-pub fn focused_monitor() -> Result<Monitor, String> {
-    let monitors: Vec<Monitor> = query_json("monitors")?;
-    monitors
-        .iter()
-        .find(|m| m.focused)
-        .or_else(|| monitors.first())
-        .cloned()
-        .ok_or_else(|| "Hyprland reported no monitors".to_string())
 }
 
 // ========================================================================
@@ -216,9 +174,15 @@ pub fn focus_address(address: &str) -> Result<(), String> {
         return Err(format!("refusing to dispatch on malformed address {address:?}"));
     }
     match dialect() {
+        // `hl.dsp.focus{…}` only *builds* a dispatcher; handing it to
+        // `hl.dispatch` is what runs it. Calling the builder alone succeeds
+        // silently and does nothing, which is a quiet way to lose a feature.
         Dialect::Lua => hyprctl(&[
             "repl",
-            &format!("hl.dispatch(\"focuswindow\", \"address:{address}\")"),
+            &format!(
+                "hl.dispatch(hl.dsp.focus({{ window = {selector} }}))",
+                selector = lua_string(&format!("address:{address}")),
+            ),
         ]),
         Dialect::Legacy => hyprctl(&["dispatch", "focuswindow", &format!("address:{address}")]),
     }
@@ -239,21 +203,40 @@ pub fn focus_address(address: &str) -> Result<(), String> {
 /// Hyprland focuses the pill the moment it maps and yanks the keyboard out
 /// of whatever the user was dictating into — which would break dictation
 /// even before the paste lands.
+///
+/// Placement rides along as a rule rather than a separate dispatch. That is
+/// not just tidier: `window.move` acts on the *focused* window, and the pill
+/// is precisely the window that will never be focused. Hyprland's percentage
+/// syntax also resolves against whichever monitor the pill maps on, so
+/// `50%- 4%` follows the user between displays with no scale arithmetic on
+/// our side — `50%-` means "half the monitor, less half the window", i.e.
+/// centred.
 pub fn apply_overlay_rules(title_regex: &str) -> Result<(), String> {
+    const PLACEMENT: &str = "50%- 4%";
+
     match dialect() {
         Dialect::Lua => {
             let lua = format!(
                 "hl.window_rule({{ match = {{ title = {title} }}, \
                  float = true, pin = true, no_focus = true, no_border = true, \
-                 no_shadow = true, no_blur = true, no_anim = true }})",
+                 no_shadow = true, no_blur = true, no_anim = true, move = {placement} }})",
                 title = lua_string(title_regex),
+                placement = lua_string(PLACEMENT),
             );
             hyprctl(&["repl", &lua]).map(|_| ())
         }
         Dialect::Legacy => {
+            let placement = format!("move {PLACEMENT}");
             let mut failures = Vec::new();
             for rule in [
-                "float", "pin", "nofocus", "noborder", "noshadow", "noblur", "noanim",
+                "float",
+                "pin",
+                "nofocus",
+                "noborder",
+                "noshadow",
+                "noblur",
+                "noanim",
+                placement.as_str(),
             ] {
                 let value = format!("{rule},title:{title_regex}");
                 if let Err(e) = hyprctl(&["keyword", "windowrulev2", &value]) {
@@ -266,28 +249,6 @@ pub fn apply_overlay_rules(title_regex: &str) -> Result<(), String> {
                 Err(failures.join("; "))
             }
         }
-    }
-}
-
-/// Place the pill at an absolute logical position.
-///
-/// Used instead of `WebviewWindow::set_position`, which a Wayland client
-/// cannot honour for its own toplevel.
-pub fn move_window(title_regex: &str, x: i32, y: i32) -> Result<(), String> {
-    match dialect() {
-        Dialect::Lua => {
-            let lua = format!(
-                "hl.dispatch(\"movewindowpixel\", \"exact {x} {y},title:\" .. {title})",
-                title = lua_string(title_regex),
-            );
-            hyprctl(&["repl", &lua]).map(|_| ())
-        }
-        Dialect::Legacy => hyprctl(&[
-            "dispatch",
-            "movewindowpixel",
-            &format!("exact {x} {y},title:{title_regex}"),
-        ])
-        .map(|_| ()),
     }
 }
 
@@ -322,29 +283,4 @@ mod tests {
         assert_eq!(lua_string("a]]b]=]c"), "[==[a]]b]=]c]==]");
     }
 
-    #[test]
-    fn logical_size_divides_by_scale() {
-        let monitor = Monitor {
-            x: 0,
-            y: 0,
-            width: 3840,
-            height: 2160,
-            scale: 1.5,
-            focused: true,
-        };
-        assert_eq!(monitor.logical_size(), (2560, 1440));
-    }
-
-    #[test]
-    fn logical_size_survives_a_bogus_scale() {
-        let monitor = Monitor {
-            x: 0,
-            y: 0,
-            width: 1920,
-            height: 1080,
-            scale: 0.0,
-            focused: true,
-        };
-        assert_eq!(monitor.logical_size(), (1920, 1080));
-    }
 }

@@ -1,0 +1,19 @@
+# Grant the `input` group write access to /dev/uinput.
+#
+# Voicebox needs this only as a fallback for its auto-paste keystroke. The
+# preferred path is `wtype`, which speaks the compositor's virtual-keyboard
+# protocol and needs no device permissions at all; uinput is what runs when
+# wtype is not installed, and it is also the more universal of the two
+# because it injects below the compositor entirely.
+#
+# The kernel creates /dev/uinput root-owned and 0600 by default. Without a
+# rule like this, only root can synthesise input — which is correct as a
+# default, since write access to uinput is equivalent to being able to type
+# anything into any application on the seat. Granting it to `input` is the
+# same trust boundary the group already implies: its members can read every
+# /dev/input/event* device, i.e. keylog the session. If that is not a trade
+# you want to make, skip this file and install wtype instead.
+#
+# static_node applies the mode even before the first open, since uinput is a
+# module-backed node that may not exist at rule-processing time.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

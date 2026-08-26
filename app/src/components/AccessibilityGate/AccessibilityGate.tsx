@@ -4,6 +4,7 @@ import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { isMacOS } from '@/lib/utils/platform';
 import { usePlatform } from '@/platform/PlatformContext';
 
 /**
@@ -24,6 +25,15 @@ export function useAccessibilityPermission() {
   const platform = usePlatform();
   const [needsPermission, setNeedsPermission] = useState(false);
   const [checking, setChecking] = useState(false);
+  /**
+   * Platform-specific remedy text, supplied by the backend.
+   *
+   * Empty except on Linux, where "auto-paste is unavailable" has several
+   * possible causes with different fixes — a compositor without a clipboard
+   * data-control protocol, or no keystroke-injection method installed — so
+   * the UI cannot name the remedy on its own.
+   */
+  const [hint, setHint] = useState('');
 
   const recheck = useCallback(async (): Promise<boolean> => {
     if (!platform.metadata.isTauri) return true;
@@ -31,6 +41,9 @@ export function useAccessibilityPermission() {
     try {
       const trusted = await invoke<boolean>('check_accessibility_permission');
       setNeedsPermission(!trusted);
+      setHint(
+        trusted ? '' : await invoke<string>('accessibility_permission_hint').catch(() => ''),
+      );
       return trusted;
     } catch (err) {
       console.warn('[accessibility] check failed:', err);
@@ -73,7 +86,7 @@ export function useAccessibilityPermission() {
     }
   }, []);
 
-  return { needsPermission, checking, recheck, openSettings };
+  return { needsPermission, checking, hint, recheck, openSettings };
 }
 
 /**
@@ -83,8 +96,11 @@ export function useAccessibilityPermission() {
  */
 export function AccessibilityNotice() {
   const { t } = useTranslation();
-  const { needsPermission, checking, recheck, openSettings } = useAccessibilityPermission();
+  const { needsPermission, checking, hint, recheck, openSettings } = useAccessibilityPermission();
   const [stillMissing, setStillMissing] = useState(false);
+  // Only macOS has a Settings pane to send the user to. On Linux the fix is
+  // a package to install, which the backend hint spells out.
+  const canOpenSettings = isMacOS();
 
   const handleRecheck = useCallback(async () => {
     setStillMissing(false);
@@ -103,14 +119,28 @@ export function AccessibilityNotice() {
             {t('captures.permissions.accessibility.title')}
           </p>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            <Trans i18nKey="captures.permissions.accessibility.body" components={{ path: <span /> }} />
+            {hint ? (
+              hint
+            ) : (
+              <Trans
+                i18nKey="captures.permissions.accessibility.body"
+                components={{ path: <span /> }}
+              />
+            )}
           </p>
           <div className="flex items-center gap-2 pt-1.5">
-            <Button size="sm" onClick={openSettings} className="gap-1.5">
-              <ExternalLink className="h-3.5 w-3.5" />
-              {t('captures.permissions.accessibility.openSettings')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleRecheck} disabled={checking}>
+            {canOpenSettings && (
+              <Button size="sm" onClick={openSettings} className="gap-1.5">
+                <ExternalLink className="h-3.5 w-3.5" />
+                {t('captures.permissions.accessibility.openSettings')}
+              </Button>
+            )}
+            <Button
+              variant={canOpenSettings ? 'outline' : 'default'}
+              size="sm"
+              onClick={handleRecheck}
+              disabled={checking}
+            >
               {checking ? t('captures.permissions.accessibility.rechecking') : t('captures.permissions.accessibility.recheck')}
             </Button>
           </div>

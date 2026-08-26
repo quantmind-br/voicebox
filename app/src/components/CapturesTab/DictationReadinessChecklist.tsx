@@ -17,6 +17,7 @@ import { apiClient } from '@/lib/api/client';
 import type { ActiveDownloadTask } from '@/lib/api/types';
 import type { DictationReadiness, ReadinessGate } from '@/lib/hooks/useDictationReadiness';
 import { cn } from '@/lib/utils/cn';
+import { isLinux, isMacOS } from '@/lib/utils/platform';
 
 interface RowProps {
   icon: React.ReactNode;
@@ -238,11 +239,10 @@ export function DictationReadinessChecklist({
         />
       )}
 
-      {/* Input Monitoring + Accessibility are macOS-only TCC permissions.
-          The Rust stubs return true on Windows/Linux, so rendering these
-          rows there would show permanent green checkmarks with copy
-          that talks about macOS — noise. Hide on non-mac. */}
-      {isMacOS && (
+      {/* Input Monitoring is a macOS-only TCC permission — the Rust check
+          returns true everywhere else, so this row would be a permanent
+          green checkmark next to copy about System Settings. Hide off-mac. */}
+      {onMacOS && (
         <ChecklistRow
           icon={<Keyboard className="h-3.5 w-3.5" />}
           title={t('captures.readiness.inputMonitoring.label')}
@@ -261,21 +261,30 @@ export function DictationReadinessChecklist({
         />
       )}
 
-      {isMacOS && (
+      {/* Auto-paste capability. On macOS this is the Accessibility grant and
+          the fix is a Settings pane. On Linux it is whether a clipboard
+          protocol and a keystroke-injection method are both present, and the
+          fix is a package to install — so the backend supplies the remedy
+          text and there is no pane to open. Windows has neither concern. */}
+      {(onMacOS || onLinux) && (
         <ChecklistRow
           icon={<Accessibility className="h-3.5 w-3.5" />}
           title={t('captures.readiness.accessibility.label')}
           description={
             readiness.accessibility
               ? t('captures.readiness.accessibility.ready')
-              : t('captures.readiness.accessibility.missing')
+              : onLinux
+                ? readiness.accessibilityHint || t('captures.readiness.accessibility.missing')
+                : t('captures.readiness.accessibility.missing')
           }
           ready={readiness.accessibility}
           action={
-            <Button size="sm" onClick={readiness.openAccessibilitySettings} className="gap-1.5">
-              <ExternalLink className="h-3.5 w-3.5" />
-              {t('captures.readiness.accessibility.openSettings')}
-            </Button>
+            onMacOS ? (
+              <Button size="sm" onClick={readiness.openAccessibilitySettings} className="gap-1.5">
+                <ExternalLink className="h-3.5 w-3.5" />
+                {t('captures.readiness.accessibility.openSettings')}
+              </Button>
+            ) : undefined
           }
         />
       )}
@@ -283,5 +292,5 @@ export function DictationReadinessChecklist({
   );
 }
 
-const isMacOS =
-  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+const onMacOS = isMacOS();
+const onLinux = isLinux();

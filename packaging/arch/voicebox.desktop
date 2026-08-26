@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Voicebox
+GenericName=Voice Cloning and Dictation
+Comment=Local text-to-speech, voice cloning, and system-wide dictation
+Exec=voicebox %U
+Icon=voicebox
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+Keywords=tts;speech;voice;dictation;transcription;clone;
+StartupNotify=true
+# Matches the app_id the GTK toplevel announces, so the compositor can pair
+# this launcher with the running window (icon in taskbars, window rules that
+# key on class rather than title).
+StartupWMClass=voicebox

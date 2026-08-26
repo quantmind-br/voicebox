@@ -258,8 +258,6 @@ fn apply_effect(app: &AppHandle, effect: Effect) {
                 #[cfg(not(target_os = "linux"))]
                 crate::position_dictate_window(&window);
                 let _ = window.show();
-                #[cfg(target_os = "linux")]
-                crate::position_dictate_window(&window);
                 let payload = serde_json::json!({ "focus": focus });
                 let _ = window.emit("dictate:start", payload);
             }

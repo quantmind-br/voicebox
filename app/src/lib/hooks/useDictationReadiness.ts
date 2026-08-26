@@ -19,6 +19,8 @@ export interface DictationReadiness {
   llm: ModelReadiness | undefined;
   inputMonitoring: boolean;
   accessibility: boolean;
+  /** Platform-specific remedy when `accessibility` is false; empty otherwise. */
+  accessibilityHint: string;
   refetch: () => void;
   openInputMonitoringSettings: () => Promise<void>;
   openAccessibilitySettings: () => Promise<void>;
@@ -54,6 +56,7 @@ export function useDictationReadiness(): DictationReadiness {
   } = useInputMonitoringPermission();
   const {
     needsPermission: a11yNeeds,
+    hint: a11yHint,
     recheck: recheckA11y,
     openSettings: openA11y,
   } = useAccessibilityPermission();
@@ -98,6 +101,7 @@ export function useDictationReadiness(): DictationReadiness {
     llm: data?.llm,
     inputMonitoring,
     accessibility,
+    accessibilityHint: isTauri ? a11yHint : '',
     refetch: () => {
       refetch();
     },

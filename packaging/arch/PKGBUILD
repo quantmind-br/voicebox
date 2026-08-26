@@ -1,0 +1,128 @@
+# Maintainer: see https://github.com/quantmind-br/voicebox
+#
+# Builds Voicebox from the checkout this file lives in. Point `_repo` at a
+# different tree, or run `makepkg` from a copy of this directory inside the
+# repository, and it will build that instead.
+#
+# A note on size: the Python backend is frozen with PyInstaller and carries
+# PyTorch plus the TTS model runtimes, so the built package is several
+# gigabytes and the build needs roughly 25 GB of scratch space. That is
+# inherent to shipping a self-contained ML backend, not to this packaging —
+# the macOS and Windows builds are the same shape. If that is not the trade
+# you want, run from source instead (see docs/linux/arch-hyprland.md); the
+# app is identical, it just uses the repo's venv rather than a frozen copy.
+
+pkgname=voicebox
+pkgver=0.5.0
+pkgrel=1
+pkgdesc="Local text-to-speech, voice cloning, and system-wide dictation"
+arch=('x86_64')
+url="https://github.com/quantmind-br/voicebox"
+license=('MIT')
+
+depends=(
+  'webkit2gtk-4.1'
+  'gtk3'
+  'alsa-lib'
+  'libappindicator-gtk3'
+  'librsvg'
+  'openssl'
+)
+makedepends=(
+  'rust'
+  'cargo'
+  'bun'
+  'python'
+  'patchelf'
+  'pkgconf'
+)
+optdepends=(
+  'wtype: layout-correct auto-paste on Wayland (strongly recommended)'
+  'wl-clipboard: command-line clipboard access for debugging'
+  'hyprland: dictation overlay placement and focus restore'
+  'cuda: NVIDIA GPU acceleration'
+  'rocm-hip-runtime: AMD GPU acceleration'
+  'pipewire-pulse: system-audio capture via monitor sources'
+)
+
+# Built in-tree from the surrounding checkout rather than fetched, so the
+# package always matches the working copy under test.
+source=(
+  'voicebox.desktop'
+  '99-voicebox-uinput.rules'
+)
+sha256sums=('SKIP' 'SKIP')
+
+_repo="$(cd "${startdir}/../.." && pwd)"
+
+build() {
+  cd "${_repo}"
+
+  # PyInstaller needs an interpreter the ML stack supports. 3.14 has no
+  # wheels for the pinned numpy<2 / numba<0.61, so prefer 3.12 when present.
+  local py
+  py="$(command -v python3.12 || command -v python3.13 || command -v python3)"
+  msg2 "Building the Python backend with ${py}"
+
+  if [ ! -d backend/venv ]; then
+    "${py}" -m venv backend/venv
+  fi
+  backend/venv/bin/pip install --upgrade pip -q
+
+  # CUDA wheels when an NVIDIA driver is loaded, ROCm when an AMD compute
+  # node is present, CPU otherwise. Mirrors the justfile's detection so a
+  # packaged build and a source build pick the same backend.
+  if [ -e /proc/driver/nvidia/version ]; then
+    msg2 "NVIDIA driver detected — installing CUDA PyTorch"
+    backend/venv/bin/pip install torch torchaudio \
+      --index-url https://download.pytorch.org/whl/cu128
+  elif [ -e /dev/kfd ]; then
+    msg2 "AMD compute node detected — installing ROCm PyTorch"
+    backend/venv/bin/pip install torch torchaudio \
+      --index-url "https://download.pytorch.org/whl/rocm${VOICEBOX_ROCM_VERSION:-6.3}"
+  fi
+
+  backend/venv/bin/pip install -r backend/requirements.txt
+  # Both pin dependency ranges that conflict with the rest of the tree; the
+  # justfile installs them the same way and explains why.
+  backend/venv/bin/pip install --no-deps chatterbox-tts
+  backend/venv/bin/pip install --no-deps hume-tada
+  backend/venv/bin/pip install git+https://github.com/QwenLM/Qwen3-TTS.git
+  backend/venv/bin/pip install pyinstaller -q
+
+  msg2 "Freezing the sidecars"
+  ./scripts/build-server.sh
+
+  msg2 "Building the desktop app"
+  bun install --frozen-lockfile
+  (cd tauri && bun run tauri build --bundles deb)
+}
+
+package() {
+  cd "${_repo}"
+
+  # Reuse the layout Tauri's own bundler produced rather than re-deriving it:
+  # the sidecars must stay siblings of the main binary, which is how both
+  # `app.shell().sidecar()` and `mcp_shim_path` locate them.
+  local staged
+  staged="$(find tauri/src-tauri/target/release/bundle/deb -maxdepth 2 -name data -type d | head -1)"
+  [ -n "${staged}" ] || { error "no deb payload found — did the bundle step run?"; return 1; }
+
+  install -dm755 "${pkgdir}/usr/lib/${pkgname}"
+  cp -a "${staged}/usr/lib/${pkgname}/." "${pkgdir}/usr/lib/${pkgname}/"
+
+  install -dm755 "${pkgdir}/usr/bin"
+  ln -sf "/usr/lib/${pkgname}/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+
+  # Icons, if the bundler emitted them.
+  if [ -d "${staged}/usr/share/icons" ]; then
+    install -dm755 "${pkgdir}/usr/share/icons"
+    cp -a "${staged}/usr/share/icons/." "${pkgdir}/usr/share/icons/"
+  fi
+
+  install -Dm644 "${srcdir}/voicebox.desktop" \
+    "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+  install -Dm644 "${srcdir}/99-voicebox-uinput.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/99-voicebox-uinput.rules"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

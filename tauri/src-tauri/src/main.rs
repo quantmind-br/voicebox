@@ -32,6 +32,7 @@ const DICTATE_WINDOW_HEIGHT: f64 = 64.0;
 const DICTATE_WINDOW_TITLE: &str = "Voicebox Dictate";
 
 /// How far down the monitor the pill sits, as a fraction of its height.
+#[cfg(not(target_os = "linux"))]
 const DICTATE_TOP_MARGIN_RATIO: f64 = 0.04;
 
 /// The pill's title as an anchored Hyprland rule pattern.
@@ -45,62 +46,29 @@ const DICTATE_TITLE_REGEX: &str = "^(Voicebox Dictate)$";
 
 /// Park the pill at top-centre of the monitor the user is working on.
 ///
-/// Split out because the Wayland answer is structurally different, not just
-/// differently-parameterised. `set_position` is a request a client makes
-/// about its own toplevel, which xdg-shell has no way to express — GTK turns
-/// it into a silent no-op. The compositor has to be asked instead, and it
-/// works in logical coordinates, so the physical sizes Tauri reports have to
-/// be divided back down by the scale factor first.
-#[cfg(desktop)]
+/// Not compiled on Linux. `set_position` is a request a client makes about
+/// its own toplevel, which xdg-shell has no way to express — GTK turns it
+/// into a silent no-op. There, placement is folded into the compositor
+/// window rule instead (see `linux::hyprland::apply_overlay_rules`), which
+/// resolves against whichever monitor the pill maps on and so needs no
+/// arithmetic here at all.
+#[cfg(all(desktop, not(target_os = "linux")))]
 pub(crate) fn position_dictate_window(window: &tauri::WebviewWindow) {
-    #[cfg(target_os = "linux")]
-    {
-        if linux::hyprland::is_active() {
-            match position_via_hyprland(window) {
-                Ok(()) => return,
-                Err(e) => eprintln!("[voicebox] could not place the dictation pill: {e}"),
-            }
-        }
-        // Any other Wayland compositor: nothing we can do from the client
-        // side. The pill still shows, just wherever the compositor puts it.
-        return;
+    // current_monitor() returns None when the window has been parked
+    // off any display by the hide path; fall back to the primary.
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else { return };
+    let monitor_pos = monitor.position();
+    let monitor_size = monitor.size();
+    if let Ok(win_size) = window.outer_size() {
+        let x = monitor_pos.x + (monitor_size.width as i32 - win_size.width as i32) / 2;
+        let y = monitor_pos.y + (monitor_size.height as f64 * DICTATE_TOP_MARGIN_RATIO) as i32;
+        let _ = window.set_position(PhysicalPosition::new(x, y));
     }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        // current_monitor() returns None when the window has been parked
-        // off any display by the hide path; fall back to the primary.
-        let monitor = window
-            .current_monitor()
-            .ok()
-            .flatten()
-            .or_else(|| window.primary_monitor().ok().flatten());
-        let Some(monitor) = monitor else { return };
-        let monitor_pos = monitor.position();
-        let monitor_size = monitor.size();
-        if let Ok(win_size) = window.outer_size() {
-            let x = monitor_pos.x + (monitor_size.width as i32 - win_size.width as i32) / 2;
-            let y = monitor_pos.y + (monitor_size.height as f64 * DICTATE_TOP_MARGIN_RATIO) as i32;
-            let _ = window.set_position(PhysicalPosition::new(x, y));
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn position_via_hyprland(window: &tauri::WebviewWindow) -> Result<(), String> {
-    let monitor = linux::hyprland::focused_monitor()?;
-    let (monitor_width, monitor_height) = monitor.logical_size();
-
-    // Tauri reports physical pixels; Hyprland places in logical ones.
-    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
-    let window_width = window
-        .outer_size()
-        .map(|size| (size.width as f64 / scale).round() as i32)
-        .unwrap_or(DICTATE_WINDOW_WIDTH as i32);
-
-    let x = monitor.x + (monitor_width - window_width) / 2;
-    let y = monitor.y + (monitor_height as f64 * DICTATE_TOP_MARGIN_RATIO) as i32;
-    linux::hyprland::move_window(DICTATE_TITLE_REGEX, x, y)
 }
 
 /// Create the floating dictate webview hidden. The HotkeyMonitor shows it on
@@ -190,16 +158,12 @@ pub fn show_dictate_window(app: &tauri::AppHandle) {
     #[cfg(not(target_os = "linux"))]
     let _ = window.set_ignore_cursor_events(false);
 
-    // Placement straddles show() differently per platform. AppKit and Win32
-    // let a hidden window be moved, so positioning first avoids a visible
-    // jump. Wayland has no window to move until the surface is mapped, so a
-    // move dispatched against a hidden pill matches nothing and the pill
-    // would stay wherever the compositor first put it.
+    // AppKit and Win32 let a hidden window be moved, so positioning first
+    // avoids a visible jump. On Wayland the compositor applies the placement
+    // rule as the surface maps, so there is nothing to do around show().
     #[cfg(not(target_os = "linux"))]
     position_dictate_window(&window);
     let _ = window.show();
-    #[cfg(target_os = "linux")]
-    position_dictate_window(&window);
 }
 
 const LEGACY_PORT: u16 = 8000;
@@ -1049,6 +1013,31 @@ fn stop_audio_playback(
     state.stop_all_playback()
 }
 
+/// Absolute path to the `voicebox-mcp` stdio shim, for the copy-paste
+/// snippets on the MCP settings page.
+///
+/// Resolved from the running executable rather than guessed from the
+/// platform. The guesses were wrong everywhere but a default macOS install:
+/// a Linux build has no single home (`/usr/lib/voicebox` under pacman, a
+/// mount point under AppImage, `target/debug` in dev), and the same is true
+/// of a portable Windows unzip. Sidecars are always siblings of the main
+/// binary, which is exactly what `app.shell().sidecar()` relies on, so
+/// asking the process where it lives gives the right answer in every case.
+#[command]
+fn mcp_shim_path() -> Result<String, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Could not locate the Voicebox executable: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or("The Voicebox executable has no parent directory")?;
+    let shim = dir.join(if cfg!(windows) {
+        "voicebox-mcp.exe"
+    } else {
+        "voicebox-mcp"
+    });
+    Ok(shim.to_string_lossy().into_owned())
+}
+
 /// Identifier of the Voicebox app itself — used to short-circuit auto-paste
 /// when the user fires a chord while focus was inside one of our own
 /// windows. Paste into Voicebox-internal targets is step 6 territory and
@@ -1081,6 +1070,23 @@ const PASTE_CONSUME_MS: u64 = 400;
 #[command]
 fn check_accessibility_permission() -> bool {
     accessibility::is_trusted()
+}
+
+/// Why auto-paste is unavailable, in the user's terms.
+///
+/// macOS and Windows can hardcode their answer in the UI because there is
+/// only one — a Settings pane to visit, or nothing to grant. Linux cannot:
+/// the paste chain has two independent links (clipboard access and keystroke
+/// injection) that fail for unrelated reasons and are fixed by different
+/// commands, so the remedy has to come from whichever one is actually
+/// missing. Returns an empty string when nothing is wrong.
+#[command]
+fn accessibility_permission_hint() -> String {
+    if accessibility::is_trusted() {
+        String::new()
+    } else {
+        accessibility::permission_hint()
+    }
 }
 
 /// Reports whether the process can observe global keyboard events. Read by
@@ -1607,7 +1613,9 @@ pub fn run() {
             debug_paste_text,
             debug_capture_focus,
             debug_focus_roundtrip,
+            mcp_shim_path,
             check_accessibility_permission,
+            accessibility_permission_hint,
             check_input_monitoring_permission,
             open_accessibility_settings,
             open_input_monitoring_settings,
@@ -1739,5 +1747,10 @@ pub fn run() {
 }
 
 fn main() {
+    // Must precede every other line of startup: WebKitGTK picks its renderer
+    // from the environment once and never re-reads it.
+    #[cfg(target_os = "linux")]
+    linux::apply_webkit_workarounds();
+
     run();
 }
