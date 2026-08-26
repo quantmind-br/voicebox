@@ -71,10 +71,38 @@ a trade you want, install `wtype` and skip this entirely.
 > bypasses the compositor. So on most setups the group is already in place and
 > only the udev rule is new.
 
+## Build and install
+
+```sh
+make setup          # Python venv (~9 GB: PyTorch + TTS runtimes) and JS deps
+make build          # freeze the sidecars, then build the app in release mode
+sudo make install   # into /usr/local
+```
+
+`make help` lists everything. The install honours the usual conventions —
+`PREFIX=/usr`, `DESTDIR=/some/stage` — and `sudo make uninstall` reverses it,
+leaving your data in `~/.config/sh.voicebox.app` alone.
+
+On Arch, prefer a real package so pacman tracks the files:
+
+```sh
+make package                       # or: cd packaging/arch && makepkg -f
+sudo pacman -U packaging/arch/voicebox-*.pkg.tar.zst
+```
+
+The PKGBUILD calls `make install` rather than laying out files itself, so the
+packaged tree and a `make install` tree are identical.
+
+Expect a multi-gigabyte result either way, and roughly 25 GB of scratch space
+during the build. The Python backend is frozen with PyInstaller and carries
+PyTorch plus every TTS runtime; the macOS and Windows builds have the same
+shape. Running from source avoids the duplication if you do not need an
+installed copy.
+
 ## Run from source
 
 ```sh
-just setup          # Python venv (~9 GB: PyTorch + TTS runtimes) and JS deps
+just setup          # same as make setup
 bun run dev:server  # backend on :17493, in one terminal
 bun run dev         # desktop app, in another
 ```
@@ -87,17 +115,6 @@ has both a discrete NVIDIA card and an AMD iGPU.
 The venv is built with Python 3.12 when available. This is not incidental:
 the ML stack pins `numpy<2` and `numba<0.61`, neither of which publishes
 wheels for 3.13+, so a 3.14 system interpreter will fail to build them.
-
-## Build a package
-
-```sh
-cd packaging/arch && makepkg -si
-```
-
-Expect a multi-gigabyte package and roughly 25 GB of scratch space. The Python
-backend is frozen with PyInstaller and carries PyTorch plus every TTS runtime;
-the macOS and Windows builds have the same shape. Running from source avoids
-the duplication if you do not need an installed copy.
 
 ## The dictation pill
 

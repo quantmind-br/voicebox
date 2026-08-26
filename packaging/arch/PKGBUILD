@@ -20,6 +20,19 @@ arch=('x86_64')
 url="https://github.com/quantmind-br/voicebox"
 license=('MIT')
 
+# !lto — makepkg enables LTO globally, which puts `-flto=auto` into CFLAGS.
+#   The `ring` crate builds its curve25519/p256 assembly through the `cc`
+#   crate, so those objects come out as GCC LTO bitcode, and the rust-lld
+#   that links the Rust side cannot read them. The build dies with a wall of
+#   `undefined symbol: ring_core_0_17_14__*` at the final link, long after
+#   anything that would hint at LTO.
+# !strip — the sidecars are PyInstaller one-file executables: an ELF with a
+#   multi-gigabyte archive appended. Stripping rewrites section headers and
+#   risks severing the loader from its payload, and there is nothing to gain
+#   since the Python bytecode is not a symbol table.
+# !debug — nothing useful to split out once !strip is set.
+options=(!lto !strip !debug)
+
 depends=(
   'webkit2gtk-4.1'
   'gtk3'
@@ -33,7 +46,7 @@ makedepends=(
   'cargo'
   'bun'
   'python'
-  'patchelf'
+  'make'
   'pkgconf'
 )
 optdepends=(
@@ -46,83 +59,24 @@ optdepends=(
 )
 
 # Built in-tree from the surrounding checkout rather than fetched, so the
-# package always matches the working copy under test.
-source=(
-  'voicebox.desktop'
-  '99-voicebox-uinput.rules'
-)
-sha256sums=('SKIP' 'SKIP')
+# package always matches the working copy under test. Nothing to download,
+# and the desktop entry and udev rule are installed by `make install`
+# straight from this directory rather than copied through $srcdir.
+source=()
+sha256sums=()
 
 _repo="$(cd "${startdir}/../.." && pwd)"
 
 build() {
   cd "${_repo}"
-
-  # PyInstaller needs an interpreter the ML stack supports. 3.14 has no
-  # wheels for the pinned numpy<2 / numba<0.61, so prefer 3.12 when present.
-  local py
-  py="$(command -v python3.12 || command -v python3.13 || command -v python3)"
-  msg2 "Building the Python backend with ${py}"
-
-  if [ ! -d backend/venv ]; then
-    "${py}" -m venv backend/venv
-  fi
-  backend/venv/bin/pip install --upgrade pip -q
-
-  # CUDA wheels when an NVIDIA driver is loaded, ROCm when an AMD compute
-  # node is present, CPU otherwise. Mirrors the justfile's detection so a
-  # packaged build and a source build pick the same backend.
-  if [ -e /proc/driver/nvidia/version ]; then
-    msg2 "NVIDIA driver detected — installing CUDA PyTorch"
-    backend/venv/bin/pip install torch torchaudio \
-      --index-url https://download.pytorch.org/whl/cu128
-  elif [ -e /dev/kfd ]; then
-    msg2 "AMD compute node detected — installing ROCm PyTorch"
-    backend/venv/bin/pip install torch torchaudio \
-      --index-url "https://download.pytorch.org/whl/rocm${VOICEBOX_ROCM_VERSION:-6.3}"
-  fi
-
-  backend/venv/bin/pip install -r backend/requirements.txt
-  # Both pin dependency ranges that conflict with the rest of the tree; the
-  # justfile installs them the same way and explains why.
-  backend/venv/bin/pip install --no-deps chatterbox-tts
-  backend/venv/bin/pip install --no-deps hume-tada
-  backend/venv/bin/pip install git+https://github.com/QwenLM/Qwen3-TTS.git
-  backend/venv/bin/pip install pyinstaller -q
-
-  msg2 "Freezing the sidecars"
-  ./scripts/build-server.sh
-
-  msg2 "Building the desktop app"
-  bun install --frozen-lockfile
-  (cd tauri && bun run tauri build --bundles deb)
+  make setup build
 }
 
 package() {
   cd "${_repo}"
-
-  # Reuse the layout Tauri's own bundler produced rather than re-deriving it:
-  # the sidecars must stay siblings of the main binary, which is how both
-  # `app.shell().sidecar()` and `mcp_shim_path` locate them.
-  local staged
-  staged="$(find tauri/src-tauri/target/release/bundle/deb -maxdepth 2 -name data -type d | head -1)"
-  [ -n "${staged}" ] || { error "no deb payload found — did the bundle step run?"; return 1; }
-
-  install -dm755 "${pkgdir}/usr/lib/${pkgname}"
-  cp -a "${staged}/usr/lib/${pkgname}/." "${pkgdir}/usr/lib/${pkgname}/"
-
-  install -dm755 "${pkgdir}/usr/bin"
-  ln -sf "/usr/lib/${pkgname}/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
-
-  # Icons, if the bundler emitted them.
-  if [ -d "${staged}/usr/share/icons" ]; then
-    install -dm755 "${pkgdir}/usr/share/icons"
-    cp -a "${staged}/usr/share/icons/." "${pkgdir}/usr/share/icons/"
-  fi
-
-  install -Dm644 "${srcdir}/voicebox.desktop" \
-    "${pkgdir}/usr/share/applications/${pkgname}.desktop"
-  install -Dm644 "${srcdir}/99-voicebox-uinput.rules" \
-    "${pkgdir}/usr/lib/udev/rules.d/99-voicebox-uinput.rules"
-  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  # The Makefile owns the install layout — which files go where, and why the
+  # sidecars have to stay beside the main binary. Delegating keeps the two
+  # from drifting apart, and means `make install` and the package produce
+  # byte-identical trees.
+  make install DESTDIR="${pkgdir}" PREFIX=/usr
 }

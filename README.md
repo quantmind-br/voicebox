@@ -99,7 +99,7 @@ The two cloud incumbents sit on opposite halves of the voice I/O loop — Eleven
 
 > **[View all binaries →](https://github.com/jamiepine/voicebox/releases/latest)**
 
-> **Linux** — Pre-built binaries are not yet available. Build from source: see [docs/linux/arch-hyprland.md](docs/linux/arch-hyprland.md), which covers Arch + Hyprland (Wayland) including the pieces auto-paste needs on a compositor that, by design, lets no client read focus, raise a window, or synthesise a keystroke.
+> **Linux** — Pre-built binaries are not yet available; build from source with `make setup && make build && sudo make install` (or `make package` for a pacman-tracked Arch package). See [docs/linux/arch-hyprland.md](docs/linux/arch-hyprland.md), which covers Arch + Hyprland (Wayland) including the pieces auto-paste needs on a compositor that, by design, lets no client read focus, raise a window, or synthesise a keystroke.
 
 > **Having trouble?** See the [Troubleshooting Guide](docs/content/docs/overview/troubleshooting.mdx) for common install, generation, model-download, and GPU issues.
 
