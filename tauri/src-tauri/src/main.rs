@@ -12,17 +12,96 @@ mod input_monitoring;
 #[cfg(desktop)]
 mod key_codes;
 mod keyboard_layout;
+#[cfg(target_os = "linux")]
+mod linux;
 mod speak_monitor;
 mod synthetic_keys;
 
 use std::sync::Mutex;
-use tauri::{command, State, Manager, WindowEvent, Emitter, Listener, RunEvent, WebviewUrl, WebviewWindowBuilder, PhysicalPosition};
+use tauri::{command, State, Manager, WindowEvent, Emitter, Listener, RunEvent, WebviewUrl, WebviewWindowBuilder};
+// Only the platforms that can position their own toplevel use this; on
+// Wayland every call site is compiled out.
+#[cfg(not(target_os = "linux"))]
+use tauri::PhysicalPosition;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
 
 pub const DICTATE_WINDOW_LABEL: &str = "dictate";
 const DICTATE_WINDOW_WIDTH: f64 = 420.0;
 const DICTATE_WINDOW_HEIGHT: f64 = 64.0;
+const DICTATE_WINDOW_TITLE: &str = "Voicebox Dictate";
+
+/// How far down the monitor the pill sits, as a fraction of its height.
+const DICTATE_TOP_MARGIN_RATIO: f64 = 0.04;
+
+/// The pill's title as an anchored Hyprland rule pattern.
+///
+/// Window rules are the only way to express "overlay" to a Wayland
+/// compositor, and they match on title, so the title doubles as the pill's
+/// identity. Anchored so it cannot collide with a user window that merely
+/// contains the phrase.
+#[cfg(target_os = "linux")]
+const DICTATE_TITLE_REGEX: &str = "^(Voicebox Dictate)$";
+
+/// Park the pill at top-centre of the monitor the user is working on.
+///
+/// Split out because the Wayland answer is structurally different, not just
+/// differently-parameterised. `set_position` is a request a client makes
+/// about its own toplevel, which xdg-shell has no way to express — GTK turns
+/// it into a silent no-op. The compositor has to be asked instead, and it
+/// works in logical coordinates, so the physical sizes Tauri reports have to
+/// be divided back down by the scale factor first.
+#[cfg(desktop)]
+pub(crate) fn position_dictate_window(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        if linux::hyprland::is_active() {
+            match position_via_hyprland(window) {
+                Ok(()) => return,
+                Err(e) => eprintln!("[voicebox] could not place the dictation pill: {e}"),
+            }
+        }
+        // Any other Wayland compositor: nothing we can do from the client
+        // side. The pill still shows, just wherever the compositor puts it.
+        return;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        // current_monitor() returns None when the window has been parked
+        // off any display by the hide path; fall back to the primary.
+        let monitor = window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten());
+        let Some(monitor) = monitor else { return };
+        let monitor_pos = monitor.position();
+        let monitor_size = monitor.size();
+        if let Ok(win_size) = window.outer_size() {
+            let x = monitor_pos.x + (monitor_size.width as i32 - win_size.width as i32) / 2;
+            let y = monitor_pos.y + (monitor_size.height as f64 * DICTATE_TOP_MARGIN_RATIO) as i32;
+            let _ = window.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn position_via_hyprland(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let monitor = linux::hyprland::focused_monitor()?;
+    let (monitor_width, monitor_height) = monitor.logical_size();
+
+    // Tauri reports physical pixels; Hyprland places in logical ones.
+    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
+    let window_width = window
+        .outer_size()
+        .map(|size| (size.width as f64 / scale).round() as i32)
+        .unwrap_or(DICTATE_WINDOW_WIDTH as i32);
+
+    let x = monitor.x + (monitor_width - window_width) / 2;
+    let y = monitor.y + (monitor_height as f64 * DICTATE_TOP_MARGIN_RATIO) as i32;
+    linux::hyprland::move_window(DICTATE_TITLE_REGEX, x, y)
+}
 
 /// Create the floating dictate webview hidden. The HotkeyMonitor shows it on
 /// chord-start; the frontend hides it when the capture pipeline finishes.
@@ -35,7 +114,7 @@ fn build_dictate_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
         DICTATE_WINDOW_LABEL,
         WebviewUrl::App("?view=dictate".into()),
     )
-    .title("Voicebox Dictate")
+    .title(DICTATE_WINDOW_TITLE)
     .inner_size(DICTATE_WINDOW_WIDTH, DICTATE_WINDOW_HEIGHT)
     .decorations(false)
     .transparent(true)
@@ -49,13 +128,23 @@ fn build_dictate_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewW
     .visible(false)
     .build()?;
 
-    if let Some(monitor) = window.current_monitor()? {
-        let monitor_size = monitor.size();
-        let win_size = window.outer_size()?;
-        let x = (monitor_size.width as i32 - win_size.width as i32) / 2;
-        let y = (monitor_size.height as f64 * 0.04) as i32;
-        window.set_position(PhysicalPosition::new(x, y))?;
+    // `always_on_top`, `visible_on_all_workspaces` and `skip_taskbar` above
+    // are all X11-era GTK hints that Wayland drops on the floor, so on
+    // Hyprland the overlay role has to be re-asserted as a compositor window
+    // rule instead. Registered here, once, against the title this window was
+    // just given — before the first show(), so the rules are already in place
+    // when the surface maps and the pill never flashes as a focused tile.
+    #[cfg(target_os = "linux")]
+    if linux::hyprland::is_active() {
+        if let Err(e) = linux::hyprland::apply_overlay_rules(DICTATE_TITLE_REGEX) {
+            eprintln!("[voicebox] could not register the dictation pill's window rules: {e}");
+        }
     }
+
+    // On Wayland this is a no-op until the surface maps; show_dictate_window
+    // places it after show() instead.
+    #[cfg(not(target_os = "linux"))]
+    position_dictate_window(&window);
 
     Ok(window)
 }
@@ -95,29 +184,22 @@ pub fn show_dictate_window(app: &tauri::AppHandle) {
             }
         },
     };
-    // current_monitor() returns None when the window has been parked
-    // off any display by the hide path; fall back to the primary.
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
-    if let Some(monitor) = monitor {
-        let monitor_pos = monitor.position();
-        let monitor_size = monitor.size();
-        if let Ok(win_size) = window.outer_size() {
-            let x = monitor_pos.x
-                + (monitor_size.width as i32 - win_size.width as i32) / 2;
-            let y = monitor_pos.y + (monitor_size.height as f64 * 0.04) as i32;
-            let _ = window.set_position(PhysicalPosition::new(x, y));
-        }
-    }
     // Skip on Linux: tao's CursorIgnoreEvents handler unwraps the GdkWindow,
     // which is None until the window is first shown, aborting the process.
     // The click-through toggle is a macOS workaround and is never set on Linux.
     #[cfg(not(target_os = "linux"))]
     let _ = window.set_ignore_cursor_events(false);
+
+    // Placement straddles show() differently per platform. AppKit and Win32
+    // let a hidden window be moved, so positioning first avoids a visible
+    // jump. Wayland has no window to move until the surface is mapped, so a
+    // move dispatched against a hidden pill matches nothing and the pill
+    // would stay wherever the compositor first put it.
+    #[cfg(not(target_os = "linux"))]
+    position_dictate_window(&window);
     let _ = window.show();
+    #[cfg(target_os = "linux")]
+    position_dictate_window(&window);
 }
 
 const LEGACY_PORT: u16 = 8000;
@@ -1221,19 +1303,16 @@ async fn paste_final_text(
         return Ok(false);
     }
     if !accessibility::is_trusted() {
-        return Err(
-            "Accessibility permission required for auto-paste. Open System Settings → Privacy & Security → Accessibility and enable Voicebox."
-                .into(),
-        );
+        return Err(accessibility::permission_hint());
     }
 
-    focus_capture::activate_pid(focus.pid)?;
+    focus_capture::activate(&focus)?;
     tokio::time::sleep(std::time::Duration::from_millis(POST_ACTIVATE_SETTLE_MS)).await;
 
     let snapshot = clipboard::save_clipboard()?;
     let after_write = clipboard::write_text(&text)?;
 
-    let paste_result = synthetic_keys::send_paste();
+    let paste_result = synthetic_keys::send_paste_for_class(focus.bundle_id.as_deref());
     tokio::time::sleep(std::time::Duration::from_millis(PASTE_CONSUME_MS)).await;
 
     let safe_to_restore = matches!(
@@ -1272,17 +1351,14 @@ async fn debug_focus_roundtrip(
     post_paste_delay_ms: u64,
 ) -> Result<serde_json::Value, String> {
     if !accessibility::is_trusted() {
-        return Err(
-            "Accessibility permission not granted. Open System Settings → Privacy & Security → Accessibility and enable Voicebox."
-                .into(),
-        );
+        return Err(accessibility::permission_hint());
     }
 
     let snapshot = focus_capture::capture_focus()?;
 
     tokio::time::sleep(std::time::Duration::from_millis(drift_ms)).await;
 
-    focus_capture::activate_pid(snapshot.pid)?;
+    focus_capture::activate(&snapshot)?;
     // Give AppKit a beat to process the activation before the synthetic
     // Cmd+V arrives — without this the paste sometimes races ahead of the
     // window-ordering animation and lands in the previous frontmost app.
@@ -1290,7 +1366,7 @@ async fn debug_focus_roundtrip(
 
     let clip = clipboard::save_clipboard()?;
     let after_write = clipboard::write_text(&text)?;
-    synthetic_keys::send_paste()?;
+    synthetic_keys::send_paste_for_class(snapshot.bundle_id.as_deref())?;
     tokio::time::sleep(std::time::Duration::from_millis(post_paste_delay_ms)).await;
     let before_restore = clipboard::current_change_count()?;
     clipboard::restore_clipboard(&clip)?;
@@ -1429,6 +1505,14 @@ pub fn run() {
                         // (see show_dictate_window).
                         #[cfg(not(target_os = "linux"))]
                         let _ = window.set_ignore_cursor_events(true);
+                        // Parking off-screen is a macOS belt-and-braces move
+                        // for an NSWindow that lingers as an invisible click
+                        // target after hide(). It has no counterpart on
+                        // Wayland — a client cannot position its own toplevel,
+                        // so this would be a silent no-op — and none is needed:
+                        // hide() unmaps the surface outright, which the
+                        // compositor honours.
+                        #[cfg(not(target_os = "linux"))]
                         let _ = window.set_position(PhysicalPosition::new(-10_000, -10_000));
                         let _ = window.hide();
                     }

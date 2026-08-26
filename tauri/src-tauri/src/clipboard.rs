@@ -697,22 +697,66 @@ pub fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+// ========================================================================
+// Linux / Wayland
+// ========================================================================
+//
+// The snapshot shape carries over unchanged: Wayland's selection is a single
+// item offered under several MIME types, which is exactly one entry in
+// `items`. `change_count` holds a content hash instead of a monotonic
+// counter, because Wayland publishes no clipboard generation number — see
+// `linux::clipboard::content_token` for why a hash satisfies the same
+// contract the callers actually depend on.
+
+#[cfg(target_os = "linux")]
+pub fn current_change_count() -> Result<i64, String> {
+    crate::linux::clipboard::content_token()
+}
+
+#[cfg(target_os = "linux")]
+pub fn save_clipboard() -> Result<ClipboardSnapshot, String> {
+    let items = crate::linux::clipboard::read_all()?;
+    let change_count = crate::linux::clipboard::content_token()?;
+    Ok(ClipboardSnapshot {
+        items: if items.is_empty() { Vec::new() } else { vec![items] },
+        change_count,
+    })
+}
+
+#[cfg(target_os = "linux")]
+pub fn write_text(text: &str) -> Result<i64, String> {
+    crate::linux::clipboard::write_text(text)?;
+    // Read the token back rather than predicting it: the compositor may
+    // normalise or re-advertise the offer, and the caller compares this value
+    // against a later live read to decide whether restoring is still safe.
+    crate::linux::clipboard::content_token()
+}
+
+#[cfg(target_os = "linux")]
+pub fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
+    crate::linux::clipboard::write_all(snapshot.items.first().map_or(&[], Vec::as_slice))
+}
+
+// ========================================================================
+// Other platforms
+// ========================================================================
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn current_change_count() -> Result<i64, String> {
     Err("clipboard snapshot is not yet implemented on this platform".into())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn save_clipboard() -> Result<ClipboardSnapshot, String> {
     Err("clipboard snapshot is not yet implemented on this platform".into())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn write_text(_text: &str) -> Result<i64, String> {
     Err("clipboard snapshot is not yet implemented on this platform".into())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn restore_clipboard(_snapshot: &ClipboardSnapshot) -> Result<(), String> {
     Err("clipboard snapshot is not yet implemented on this platform".into())
 }

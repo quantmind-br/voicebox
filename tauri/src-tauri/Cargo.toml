@@ -48,6 +48,17 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
+# Wayland clipboard. The X11-era "own the selection by writing to a server
+# buffer" model does not exist here: a Wayland client that offers data must
+# stay alive to serve it. wl-clipboard-rs handles that by forking a serving
+# child, matching what the wl-copy CLI does, so save/write/restore behaves
+# like the macOS NSPasteboard path from the caller's point of view.
+wl-clipboard-rs = "0.9"
+# Synthetic paste. Wayland has no XTEST, so the accelerator is injected at
+# the kernel evdev layer through /dev/uinput — which works uniformly across
+# native Wayland clients, XWayland clients, and any compositor. evdev is
+# already in the tree via keytap, so this shares its version.
+evdev = "0.13"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2.0"

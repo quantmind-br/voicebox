@@ -34,6 +34,14 @@ pub struct FocusSnapshot {
     pub pid: i32,
     pub bundle_id: Option<String>,
     pub role: Option<String>,
+    /// Compositor-issued window handle, when the platform has one that is
+    /// finer-grained than the PID. Hyprland fills this with the window
+    /// address (`"0x55a…"`); macOS and Windows leave it `None` because their
+    /// activation APIs are already keyed on something better (PID + AppKit
+    /// activation, HWND lookup). Defaults on deserialize so a snapshot
+    /// serialised by an older build still round-trips.
+    #[serde(default)]
+    pub window_id: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -243,6 +251,7 @@ pub fn capture_focus() -> Result<FocusSnapshot, String> {
             pid,
             bundle_id,
             role,
+            window_id: None,
         })
     }
 }
@@ -510,6 +519,7 @@ pub fn capture_focus() -> Result<FocusSnapshot, String> {
             pid: pid as i32,
             bundle_id,
             role,
+            window_id: None,
         })
     }
 }
@@ -524,12 +534,97 @@ pub fn activate_pid(pid: i32) -> Result<(), String> {
     win::activate_hwnd(hwnd)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+// ========================================================================
+// Linux / Wayland
+// ========================================================================
+//
+// Wayland has no protocol through which a client can ask who holds focus —
+// that is a compositor privilege, and deliberately so. Hyprland exposes it
+// over its own IPC socket, which is what the snapshot below reads.
+//
+// On any other Wayland compositor there is nothing equivalent to fall back
+// to, so the snapshot degrades instead of failing: `pid: 0` marks "target
+// unknown", `activate` becomes a no-op, and the paste lands in whatever
+// currently holds focus. That is the right outcome rather than a
+// consolation prize — the dictation pill is configured never to take focus
+// (see `linux::hyprland::apply_overlay_rules`), so whatever the user was
+// typing into still has it when the transcript is ready.
+
+/// Marker PID for "the compositor would not tell us who has focus".
+#[cfg(target_os = "linux")]
+const UNKNOWN_PID: i32 = 0;
+
+#[cfg(target_os = "linux")]
+pub fn capture_focus() -> Result<FocusSnapshot, String> {
+    if !crate::linux::hyprland::is_active() {
+        return Ok(FocusSnapshot {
+            pid: UNKNOWN_PID,
+            bundle_id: None,
+            role: None,
+            window_id: None,
+        });
+    }
+
+    match crate::linux::hyprland::active_window()? {
+        Some(window) => Ok(FocusSnapshot {
+            // Lowercased to match the Windows convention of a normalised
+            // identifier, which is what `VOICEBOX_BUNDLE_ID` compares against.
+            bundle_id: Some(window.class.to_ascii_lowercase()),
+            // No AX-role equivalent exists; the title is the closest useful
+            // thing for the debug commands that surface this field.
+            role: Some(window.title),
+            window_id: Some(window.address),
+            pid: window.pid,
+        }),
+        // Nothing focused is a real desktop state, not a failure.
+        None => Ok(FocusSnapshot {
+            pid: UNKNOWN_PID,
+            bundle_id: None,
+            role: None,
+            window_id: None,
+        }),
+    }
+}
+
+// No `activate_pid` here on purpose. Every Wayland caller goes through
+// [`activate`], which needs the window handle rather than the PID — see its
+// doc comment for why the PID is the wrong key on this platform.
+
+// ========================================================================
+// Other platforms
+// ========================================================================
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn capture_focus() -> Result<FocusSnapshot, String> {
     Err("focus capture is not yet implemented on this platform".into())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn activate_pid(_pid: i32) -> Result<(), String> {
     Err("app activation is not yet implemented on this platform".into())
+}
+
+// ========================================================================
+// Activation entry point
+// ========================================================================
+
+/// Re-focus the window a snapshot was taken from.
+///
+/// Prefers whatever handle the platform captured over the bare PID. That
+/// distinction is load-bearing on Wayland: a browser or editor with several
+/// windows shares one PID across all of them, so PID-based matching would
+/// raise an arbitrary one and paste into the wrong document.
+#[cfg(target_os = "linux")]
+pub fn activate(snapshot: &FocusSnapshot) -> Result<(), String> {
+    let Some(address) = snapshot.window_id.as_deref() else {
+        // Non-Hyprland session, or nothing was focused at chord-start.
+        // Focus never left the user's window, so there is nothing to restore.
+        return Ok(());
+    };
+    crate::linux::hyprland::focus_address(address)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn activate(snapshot: &FocusSnapshot) -> Result<(), String> {
+    activate_pid(snapshot.pid)
 }

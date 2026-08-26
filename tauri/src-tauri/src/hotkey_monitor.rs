@@ -245,33 +245,21 @@ fn apply_effect(app: &AppHandle, effect: Effect) {
                 // pill lands at top-center and the user can actually click
                 // the error pill / stop button.
                 //
-                // `current_monitor()` returns None when the window is off
-                // any display (our hide handler parks it at -10_000, -10_000
-                // precisely so it never intercepts clicks), so fall back to
-                // the primary monitor for the reposition.
-                let monitor = window
-                    .current_monitor()
-                    .ok()
-                    .flatten()
-                    .or_else(|| window.primary_monitor().ok().flatten());
-                if let Some(monitor) = monitor {
-                    let monitor_pos = monitor.position();
-                    let monitor_size = monitor.size();
-                    if let Ok(win_size) = window.outer_size() {
-                        let x = monitor_pos.x
-                            + (monitor_size.width as i32 - win_size.width as i32) / 2;
-                        let y = monitor_pos.y + (monitor_size.height as f64 * 0.04) as i32;
-                        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-                    }
-                }
                 // Skip on Linux: aborts if the window was never realized
                 // (see show_dictate_window in main.rs).
                 #[cfg(not(target_os = "linux"))]
                 let _ = window.set_ignore_cursor_events(false);
                 // Deliberately no set_focus() — taking key focus would yank
                 // it out of whatever app the user was typing in, which is
-                // the opposite of what a dictation overlay should do.
+                // the opposite of what a dictation overlay should do. On
+                // Wayland the same guarantee comes from the `no_focus` window
+                // rule, since the compositor focuses newly mapped windows by
+                // default and does not ask the client's opinion.
+                #[cfg(not(target_os = "linux"))]
+                crate::position_dictate_window(&window);
                 let _ = window.show();
+                #[cfg(target_os = "linux")]
+                crate::position_dictate_window(&window);
                 let payload = serde_json::json!({ "focus": focus });
                 let _ = window.emit("dictate:start", payload);
             }

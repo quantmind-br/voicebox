@@ -214,7 +214,29 @@ pub fn send_paste() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+pub fn send_paste() -> Result<(), String> {
+    crate::linux::paste::send_paste(crate::linux::paste::Accelerator::Standard)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn send_paste() -> Result<(), String> {
     Err("synthetic paste is not yet implemented on this platform".into())
+}
+
+/// Send the paste accelerator the focused application actually listens for.
+///
+/// Only Linux distinguishes: terminal emulators bind Ctrl+Shift+V, because
+/// plain Ctrl+V there is readline's quoted-insert and would embed a control
+/// character instead of the transcript. macOS and Windows have one paste
+/// accelerator across the whole desktop, so they ignore the hint.
+pub fn send_paste_for_class(_class: Option<&str>) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        return crate::linux::paste::send_paste(crate::linux::paste::accelerator_for_class(_class));
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        send_paste()
+    }
 }

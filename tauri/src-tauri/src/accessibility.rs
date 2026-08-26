@@ -36,7 +36,37 @@ pub fn is_trusted() -> bool {
     true
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+pub fn is_trusted() -> bool {
+    // No TCC-style switch exists here either, but unlike Windows the
+    // capability genuinely can be absent: auto-paste needs both clipboard
+    // access and a way to synthesise a keystroke, and a stock install may
+    // have neither. Report what is actually true so the paste pipeline can
+    // fail up front with an actionable message instead of getting all the way
+    // to the keystroke and dropping it.
+    crate::linux::auto_paste_capability().is_ok()
+}
+
+/// Why [`is_trusted`] is false, phrased for the user.
+///
+/// macOS and Windows have a single well-known answer ("open this Settings
+/// pane" / "nothing to grant"), so only Linux needs to explain itself — the
+/// fix there depends on which link of the paste chain is missing.
+#[cfg(target_os = "linux")]
+pub fn permission_hint() -> String {
+    crate::linux::auto_paste_capability()
+        .err()
+        .unwrap_or_else(|| "Auto-paste is available.".to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn permission_hint() -> String {
+    "Accessibility permission required for auto-paste. Open System Settings → \
+     Privacy & Security → Accessibility and enable Voicebox."
+        .to_string()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn is_trusted() -> bool {
     false
 }
