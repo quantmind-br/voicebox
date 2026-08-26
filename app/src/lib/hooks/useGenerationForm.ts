@@ -5,7 +5,10 @@ import * as z from 'zod';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import type { EffectConfig } from '@/lib/api/types';
-import { LANGUAGE_CODES, type LanguageCode } from '@/lib/constants/languages';
+import {
+  GENERATION_LANGUAGE_CODES,
+  type GenerationLanguageCode,
+} from '@/lib/constants/languages';
 import { useGeneration } from '@/lib/hooks/useGeneration';
 import { useModelDownloadToast } from '@/lib/hooks/useModelDownloadToast';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
@@ -14,7 +17,9 @@ import { useUIStore } from '@/stores/uiStore';
 
 const generationSchema = z.object({
   text: z.string().min(1, '').max(50000),
-  language: z.enum(LANGUAGE_CODES as [LanguageCode, ...LanguageCode[]]),
+  language: z.enum(
+    GENERATION_LANGUAGE_CODES as [GenerationLanguageCode, ...GenerationLanguageCode[]],
+  ),
   seed: z.number().int().optional(),
   modelSize: z.enum(['1.7B', '0.6B', '1B', '3B']).optional(),
   instruct: z.string().max(500).optional(),

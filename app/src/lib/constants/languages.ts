@@ -37,9 +37,33 @@ export const ALL_LANGUAGES = {
 
 export type LanguageCode = keyof typeof ALL_LANGUAGES;
 
+/**
+ * Languages offerable at generation time, which is a superset of the concrete
+ * ones: 'auto' leaves the model to infer from the text and the voice-clone
+ * reference.
+ *
+ * Kept out of ALL_LANGUAGES on purpose. That list also drives the voice
+ * profile forms, where the field records what language the reference sample
+ * was actually recorded in — a fact about an existing file, which cannot be
+ * "auto".
+ */
+export const GENERATION_LANGUAGES = {
+  auto: 'Auto-detect',
+  ...ALL_LANGUAGES,
+} as const;
+
+export type GenerationLanguageCode = keyof typeof GENERATION_LANGUAGES;
+
+export const GENERATION_LANGUAGE_CODES = Object.keys(
+  GENERATION_LANGUAGES,
+) as GenerationLanguageCode[];
+
 /** Per-engine supported language codes. */
-export const ENGINE_LANGUAGES: Record<string, readonly LanguageCode[]> = {
-  qwen: ['zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it'],
+export const ENGINE_LANGUAGES: Record<string, readonly GenerationLanguageCode[]> = {
+  // 'auto' first so it reads as the default choice rather than an oddity at
+  // the bottom of the list. Qwen-only: it maps to the model's own Auto path,
+  // which the other engines do not have.
+  qwen: ['auto', 'zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it'],
   luxtts: ['en'],
   chatterbox: [
     'ar',
@@ -69,7 +93,7 @@ export const ENGINE_LANGUAGES: Record<string, readonly LanguageCode[]> = {
   chatterbox_turbo: ['en'],
   tada: ['en', 'ar', 'zh', 'de', 'es', 'fr', 'it', 'ja', 'pl', 'pt'],
   kokoro: ['en', 'es', 'fr', 'hi', 'it', 'pt', 'ja', 'zh'],
-  qwen_custom_voice: ['zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it'],
+  qwen_custom_voice: ['auto', 'zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it'],
 } as const;
 
 /** Helper: get language options for a given engine. */
@@ -77,7 +101,7 @@ export function getLanguageOptionsForEngine(engine: string) {
   const codes = ENGINE_LANGUAGES[engine] ?? ENGINE_LANGUAGES.qwen;
   return codes.map((code) => ({
     value: code,
-    label: ALL_LANGUAGES[code],
+    label: GENERATION_LANGUAGES[code],
   }));
 }
 

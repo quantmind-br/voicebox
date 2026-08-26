@@ -23,7 +23,12 @@ DEFAULT_LLM_TEMPERATURE = 0.7
 
 from ..utils.platform_detect import get_backend_type
 
+# Qwen3-TTS takes a language *name*, not a code. Callers look this up with
+# `.get(code, "auto")`, so anything missing here already degrades to the
+# model's own Auto path — "auto" is listed explicitly because it is a
+# deliberate user choice, not a fallback.
 LANGUAGE_CODE_TO_NAME = {
+    "auto": "auto",
     "zh": "chinese",
     "en": "english",
     "ja": "japanese",

@@ -1,5 +1,5 @@
 // API Types matching backend Pydantic models
-import type { LanguageCode } from '@/lib/constants/languages';
+import type { GenerationLanguageCode, LanguageCode } from '@/lib/constants/languages';
 
 export type VoiceType = 'cloned' | 'preset' | 'designed';
 
@@ -68,7 +68,8 @@ export interface EffectConfig {
 export interface GenerationRequest {
   profile_id: string;
   text: string;
-  language: LanguageCode;
+  /** Accepts 'auto', which leaves the engine to infer from text and reference. */
+  language: GenerationLanguageCode;
   seed?: number;
   model_size?: '1.7B' | '0.6B' | '1B' | '3B';
   engine?:
