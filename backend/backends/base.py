@@ -5,14 +5,16 @@ Eliminates duplication of cache checking, device detection,
 voice prompt combination, and model loading progress tracking.
 """
 
+import glob
 import logging
+import os
 import platform
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import numpy as np
-
 from ..utils.audio import normalize_audio, load_audio
 from ..utils.progress import get_progress_manager
 from ..utils.hf_progress import HFProgressTracker, create_hf_progress_callback
@@ -77,6 +79,28 @@ def is_model_cached(
         return False
 
 
+def preload_nvidia_libraries() -> None:
+    """Preload NVIDIA CUDA runtime libraries (especially libnvrtc-builtins) on Linux.
+
+    When PyTorch is installed via pip wheels, NVIDIA shared libraries reside in
+    site-packages/nvidia/<package>/lib/. If LD_LIBRARY_PATH does not include them,
+    PyTorch JIT compilation (NVRTC) fails to dlopen libnvrtc-builtins.so.
+    Preloading them with RTLD_GLOBAL resolves symbols globally.
+    """
+    if sys.platform != "linux":
+        return
+
+    import ctypes
+
+    for sp in sys.path:
+        if "site-packages" in sp or "dist-packages" in sp:
+            for lib_path in glob.glob(os.path.join(sp, "nvidia", "*", "lib", "*.so*")):
+                if "builtins" in lib_path or "nvrtc" in lib_path:
+                    try:
+                        ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                    except Exception:
+                        pass
+
 def get_torch_device(
     *,
     allow_xpu: bool = False,
@@ -96,6 +120,7 @@ def get_torch_device(
     if force_cpu_on_mac and platform.system() == "Darwin":
         return "cpu"
 
+    preload_nvidia_libraries()
     import torch
 
     if torch.cuda.is_available():
@@ -133,6 +158,7 @@ def check_cuda_compatibility() -> tuple[bool, str | None]:
         (compatible, warning_message) — compatible is True if OK or no CUDA GPU,
         warning_message is a human-readable string if there's a problem.
     """
+    preload_nvidia_libraries()
     import torch
 
     if not torch.cuda.is_available():

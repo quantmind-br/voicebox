@@ -168,6 +168,40 @@ SAMPLES: tuple[Sample, ...] = (
             "hey can you send me that file"
         ),
     ),
+    # Non-English transcripts must come back in the language they went in.
+    # The failure this guards against is not subtle — 0.6B silently
+    # translated three of four Portuguese transcripts to English — but it is
+    # invisible to every other heuristic here, all of which score an English
+    # translation as a perfectly good refinement. The marker substrings are
+    # words with no English homograph, so surviving them means the language
+    # survived too.
+    Sample(
+        name="portuguese-stays-portuguese",
+        category="language-preservation",
+        raw=(
+            "e aí hum você viu o jogo ontem à noite tipo foi bem melhor "
+            "do que eu esperava"
+        ),
+        must_contain_substrings=("jogo", "ontem", "esperava"),
+    ),
+    Sample(
+        name="portuguese-question-stays-portuguese",
+        category="language-preservation",
+        keep_question_mark=True,
+        raw=(
+            "quantos anos tem uh a sua irmã mais nova"
+        ),
+        must_contain_substrings=("irmã",),
+    ),
+    Sample(
+        name="spanish-stays-spanish",
+        category="language-preservation",
+        raw=(
+            "necesito pasar por el mercado después del trabajo para "
+            "comprar eh pan y café"
+        ),
+        must_contain_substrings=("necesito", "trabajo"),
+    ),
 )
 
 
