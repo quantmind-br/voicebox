@@ -272,13 +272,19 @@ mod tests {
             accelerator_for_class(Some("com.mitchellh.ghostty")),
             Accelerator::Terminal
         );
-        assert_eq!(accelerator_for_class(Some("Alacritty")), Accelerator::Terminal);
+        assert_eq!(
+            accelerator_for_class(Some("Alacritty")),
+            Accelerator::Terminal
+        );
         assert_eq!(accelerator_for_class(Some("kitty")), Accelerator::Terminal);
     }
 
     #[test]
     fn everything_else_gets_plain_ctrl_v() {
-        assert_eq!(accelerator_for_class(Some("firefox")), Accelerator::Standard);
+        assert_eq!(
+            accelerator_for_class(Some("firefox")),
+            Accelerator::Standard
+        );
         assert_eq!(accelerator_for_class(Some("code")), Accelerator::Standard);
         assert_eq!(accelerator_for_class(None), Accelerator::Standard);
     }
@@ -421,7 +427,10 @@ mod tests {
 
     /// `(address, class)` of the window with this exact title.
     fn find_window_by_title(title: &str) -> Option<(String, String)> {
-        let output = Command::new("hyprctl").args(["clients", "-j"]).output().ok()?;
+        let output = Command::new("hyprctl")
+            .args(["clients", "-j"])
+            .output()
+            .ok()?;
         let clients: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).ok()?;
         clients.iter().find_map(|client| {
             if client.get("title")?.as_str()? != title {

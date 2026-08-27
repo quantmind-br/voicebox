@@ -17,7 +17,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import { PRESET_ONLY_ENGINES } from '@/lib/constants/engines';
-import { getLanguageOptionsForEngine, type LanguageCode } from '@/lib/constants/languages';
+import {
+  type GenerationLanguageCode,
+  type LanguageCode,
+  getLanguageOptionsForEngine,
+} from '@/lib/constants/languages';
 import { type GenerationFormValues, useGenerationForm } from '@/lib/hooks/useGenerationForm';
 import { useProfile, useProfiles } from '@/lib/hooks/useProfiles';
 import { useStory } from '@/lib/hooks/useStories';
@@ -141,25 +145,44 @@ export function FloatingGenerateBox({
   useEffect(() => {
     if (watchedEngine) {
       setSelectedEngine(watchedEngine);
+      const availableLangs = getLanguageOptionsForEngine(watchedEngine);
+      const currentLang = form.getValues('language');
+      if (!availableLangs.some((l) => l.value === currentLang)) {
+        form.setValue('language', (availableLangs[0]?.value ?? 'auto') as GenerationLanguageCode);
+      }
     }
-  }, [watchedEngine, setSelectedEngine]);
+  }, [watchedEngine, setSelectedEngine, form]);
 
   // Sync generation form language, engine, and effects with selected profile
   useEffect(() => {
-    if (selectedProfile?.language) {
-      form.setValue('language', selectedProfile.language as LanguageCode);
-    }
     // Auto-switch engine to match the profile
-    const engine = selectedProfile?.default_engine ?? selectedProfile?.preset_engine;
+    let engine = selectedProfile?.default_engine ?? selectedProfile?.preset_engine;
     if (engine) {
       form.setValue('engine', engine as GenerationFormValues['engine']);
     } else if (selectedProfile && selectedProfile.voice_type !== 'preset') {
       // Cloned/designed profile with no default — ensure a compatible (non-preset) engine
       const currentEngine = form.getValues('engine');
       if (currentEngine && PRESET_ONLY_ENGINES[currentEngine]) {
+        engine = 'qwen';
         form.setValue('engine', 'qwen');
+      } else {
+        engine = currentEngine || 'qwen';
       }
+    } else {
+      engine = form.getValues('engine') || 'qwen';
     }
+
+    // Set language ensuring it's valid for the target engine
+    const availableLangs = getLanguageOptionsForEngine(engine);
+    if (
+      selectedProfile?.language &&
+      availableLangs.some((l) => l.value === selectedProfile.language)
+    ) {
+      form.setValue('language', selectedProfile.language as LanguageCode);
+    } else {
+      form.setValue('language', (availableLangs[0]?.value ?? 'auto') as GenerationLanguageCode);
+    }
+
     // Pre-fill effects from profile defaults
     if (
       selectedProfile?.effects_chain &&
@@ -573,9 +596,12 @@ export function FloatingGenerateBox({
                       const engineLangs = getLanguageOptionsForEngine(
                         form.watch('engine') || 'qwen',
                       );
+                      const selectValue = engineLangs.some((l) => l.value === field.value)
+                        ? field.value
+                        : (engineLangs[0]?.value ?? 'auto');
                       return (
                         <FormItem className="flex-1 space-y-0">
-                          <Select onValueChange={field.onChange} value={field.value}>
+                          <Select onValueChange={field.onChange} value={selectValue}>
                             <FormControl>
                               <SelectTrigger className="h-8 text-xs bg-card border-border rounded-full hover:bg-background/50 transition-all">
                                 <SelectValue />

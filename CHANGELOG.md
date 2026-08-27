@@ -16,6 +16,12 @@
   device nodes at startup. Native Linux setup now picks ROCm wheels for AMD GPUs
   and CUDA wheels for NVIDIA GPUs before installing backend dependencies.
 
+- **Closing Voicebox now keeps it available from the system tray.** The main
+  window hides without stopping the bundled server; the tray menu can restore
+  and focus the window or quit the application explicitly. Linux uses the
+  StatusNotifier/AppIndicator menu path, including on Wayland compositors such
+  as Hyprland.
+
 ### Gemini API providers
 
 - **Gemini transcription and text-to-speech are now first-class engines.** A new Settings → Providers page stores a Gemini key locally or uses `GEMINI_API_KEY`, validates it without spending generation tokens, and configures `gemini-3.5-transcribe` plus three Gemini TTS preview models.

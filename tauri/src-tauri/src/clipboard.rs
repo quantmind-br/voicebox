@@ -718,7 +718,11 @@ pub fn save_clipboard() -> Result<ClipboardSnapshot, String> {
     let items = crate::linux::clipboard::read_all()?;
     let change_count = crate::linux::clipboard::content_token()?;
     Ok(ClipboardSnapshot {
-        items: if items.is_empty() { Vec::new() } else { vec![items] },
+        items: if items.is_empty() {
+            Vec::new()
+        } else {
+            vec![items]
+        },
         change_count,
     })
 }

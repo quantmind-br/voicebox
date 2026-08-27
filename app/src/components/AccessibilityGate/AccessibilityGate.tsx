@@ -41,9 +41,7 @@ export function useAccessibilityPermission() {
     try {
       const trusted = await invoke<boolean>('check_accessibility_permission');
       setNeedsPermission(!trusted);
-      setHint(
-        trusted ? '' : await invoke<string>('accessibility_permission_hint').catch(() => ''),
-      );
+      setHint(trusted ? '' : await invoke<string>('accessibility_permission_hint').catch(() => ''));
       return trusted;
     } catch (err) {
       console.warn('[accessibility] check failed:', err);
@@ -141,7 +139,9 @@ export function AccessibilityNotice() {
               onClick={handleRecheck}
               disabled={checking}
             >
-              {checking ? t('captures.permissions.accessibility.rechecking') : t('captures.permissions.accessibility.recheck')}
+              {checking
+                ? t('captures.permissions.accessibility.rechecking')
+                : t('captures.permissions.accessibility.recheck')}
             </Button>
           </div>
           {stillMissing && !checking && (

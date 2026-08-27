@@ -776,13 +776,13 @@
         "updatedDescription": "Connecté à {{url}}"
       },
       "keepServerRunning": {
-        "title": "Garder le serveur actif à la fermeture de l'application",
-        "description": "Le serveur continuera de fonctionner en arrière-plan après la fermeture de l'application.",
+        "title": "Garder le serveur actif après avoir quitté Voicebox",
+        "description": "Le serveur continuera de fonctionner après avoir choisi Quitter dans le menu de la zone de notification.",
         "failedTitle": "Échec de la mise à jour du paramètre",
         "failedDescription": "Impossible de synchroniser le paramètre avec le serveur.",
         "updatedTitle": "Paramètre mis à jour",
-        "runningDescription": "Le serveur continuera de fonctionner à la fermeture de l'application",
-        "stoppedDescription": "Le serveur s'arrêtera à la fermeture de l'application"
+        "runningDescription": "Le serveur continuera de fonctionner après avoir quitté Voicebox",
+        "stoppedDescription": "Le serveur s'arrêtera lorsque Voicebox quittera"
       },
       "networkAccess": {
         "title": "Autoriser l'accès réseau",

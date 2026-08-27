@@ -11,7 +11,10 @@ import {
 } from '@/components/ui/select';
 import type { VoiceProfileResponse } from '@/lib/api/types';
 import { CLONING_ENGINES } from '@/lib/constants/engines';
-import { getLanguageOptionsForEngine } from '@/lib/constants/languages';
+import {
+  type GenerationLanguageCode,
+  getLanguageOptionsForEngine,
+} from '@/lib/constants/languages';
 import type { GenerationFormValues } from '@/lib/hooks/useGenerationForm';
 
 /**
@@ -66,7 +69,7 @@ export function applyEngineSelection(form: UseFormReturn<GenerationFormValues>, 
     const currentLang = form.getValues('language');
     const available = getLanguageOptionsForEngine('qwen_custom_voice');
     if (!available.some((l) => l.value === currentLang)) {
-      form.setValue('language', available[0]?.value ?? 'en');
+      form.setValue('language', (available[0]?.value ?? 'auto') as GenerationLanguageCode);
     }
   } else if (value.startsWith('qwen:')) {
     const [, modelSize] = value.split(':');
@@ -76,7 +79,7 @@ export function applyEngineSelection(form: UseFormReturn<GenerationFormValues>, 
     const currentLang = form.getValues('language');
     const available = getLanguageOptionsForEngine('qwen');
     if (!available.some((l) => l.value === currentLang)) {
-      form.setValue('language', available[0]?.value ?? 'en');
+      form.setValue('language', (available[0]?.value ?? 'auto') as GenerationLanguageCode);
     }
   } else if (value.startsWith('tada:')) {
     const [, modelSize] = value.split(':');
@@ -89,7 +92,7 @@ export function applyEngineSelection(form: UseFormReturn<GenerationFormValues>, 
       const currentLang = form.getValues('language');
       const available = getLanguageOptionsForEngine('tada');
       if (!available.some((l) => l.value === currentLang)) {
-        form.setValue('language', available[0]?.value ?? 'en');
+        form.setValue('language', (available[0]?.value ?? 'en') as GenerationLanguageCode);
       }
     }
   } else {
@@ -102,7 +105,7 @@ export function applyEngineSelection(form: UseFormReturn<GenerationFormValues>, 
       const currentLang = form.getValues('language');
       const available = getLanguageOptionsForEngine(value);
       if (!available.some((l) => l.value === currentLang)) {
-        form.setValue('language', available[0]?.value ?? 'en');
+        form.setValue('language', (available[0]?.value ?? 'auto') as GenerationLanguageCode);
       }
     }
   }

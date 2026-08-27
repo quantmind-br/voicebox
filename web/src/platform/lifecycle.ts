@@ -28,10 +28,6 @@ class WebLifecycle implements PlatformLifecycle {
     // No-op for web - backend variant is managed externally
   }
 
-  async setupWindowCloseHandler(): Promise<void> {
-    // No-op for web - no window close handling needed
-  }
-
   subscribeToServerLogs(_callback: (_entry: ServerLogEntry) => void): () => void {
     // No-op for web - server logs are not available
     return () => {};

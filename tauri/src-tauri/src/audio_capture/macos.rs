@@ -5,11 +5,8 @@ use screencapturekit::{
     cm::CMSampleBuffer,
     shareable_content::SCShareableContent,
     stream::{
-        configuration::SCStreamConfiguration,
-        content_filter::SCContentFilter,
-        output_trait::SCStreamOutputTrait,
-        output_type::SCStreamOutputType,
-        sc_stream::SCStream,
+        configuration::SCStreamConfiguration, content_filter::SCContentFilter,
+        output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, sc_stream::SCStream,
     },
 };
 use std::io::Cursor;
@@ -29,8 +26,8 @@ pub async fn start_capture(
     state.reset();
 
     // Get shareable content
-    let content = SCShareableContent::get()
-        .map_err(|e| format!("Failed to get shareable content: {}", e))?;
+    let content =
+        SCShareableContent::get().map_err(|e| format!("Failed to get shareable content: {}", e))?;
 
     // Get first display
     let displays = content.displays();
@@ -70,14 +67,13 @@ pub async fn start_capture(
     }
 
     impl SCStreamOutputTrait for AudioHandler {
-        fn did_output_sample_buffer(
-            &self,
-            sample: CMSampleBuffer,
-            _type: SCStreamOutputType,
-        ) {
+        fn did_output_sample_buffer(&self, sample: CMSampleBuffer, _type: SCStreamOutputType) {
             if _type == SCStreamOutputType::Audio {
                 if let Ok(audio_samples) = extract_audio_samples(sample) {
-                    let mut samples_guard = self.samples.lock().unwrap();
+                    let mut samples_guard = self
+                        .samples
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
                     samples_guard.extend_from_slice(&audio_samples);
                 }
             }
@@ -90,14 +86,16 @@ pub async fn start_capture(
 
     // Create stream
     let mut stream = SCStream::new(&filter, &config);
-    
+
     // Add output handler for audio (order: handler, then output_type)
     stream.add_output_handler(handler, SCStreamOutputType::Audio);
 
     // Store stream reference
     *state.stream.lock().unwrap() = Some(stream.clone());
 
-    stream.start_capture().map_err(|e| format!("Failed to start capture: {}", e))?;
+    stream
+        .start_capture()
+        .map_err(|e| format!("Failed to start capture: {}", e))?;
 
     // Spawn task to stop after max duration
     let stream_clone = stream.clone();
@@ -141,10 +139,10 @@ pub async fn stop_capture(state: &AudioCaptureState) -> Result<String, String> {
 
     // Convert to WAV
     let wav_data = samples_to_wav(&samples, sample_rate, channels)?;
-    
+
     // Encode to base64
     let base64_data = general_purpose::STANDARD.encode(&wav_data);
-    
+
     Ok(base64_data)
 }
 
@@ -161,8 +159,14 @@ fn macos_version_at_least(required_major: u64, required_minor: u64) -> bool {
     let version = String::from_utf8_lossy(&output.stdout);
     let mut parts = version.trim().split('.');
 
-    let major = parts.next().and_then(|part| part.parse::<u64>().ok()).unwrap_or(0);
-    let minor = parts.next().and_then(|part| part.parse::<u64>().ok()).unwrap_or(0);
+    let major = parts
+        .next()
+        .and_then(|part| part.parse::<u64>().ok())
+        .unwrap_or(0);
+    let minor = parts
+        .next()
+        .and_then(|part| part.parse::<u64>().ok())
+        .unwrap_or(0);
 
     major > required_major || (major == required_major && minor >= required_minor)
 }
@@ -175,7 +179,7 @@ fn extract_audio_samples(sample_buffer: CMSampleBuffer) -> Result<Vec<f32>, Stri
 
     let buffers: Vec<_> = audio_buffer_list.iter().collect();
     let num_buffers = buffers.len();
-    
+
     if num_buffers == 0 {
         return Ok(Vec::new());
     }
@@ -184,13 +188,13 @@ fn extract_audio_samples(sample_buffer: CMSampleBuffer) -> Result<Vec<f32>, Stri
     // The audio can be either:
     // - Interleaved (1 buffer with L,R,L,R,... samples)
     // - Planar (2 buffers, one for L channel, one for R channel)
-    
+
     if num_buffers == 1 {
         // Interleaved stereo or mono in a single buffer
         let buffer = &buffers[0];
         let data_bytes = buffer.data();
         let num_samples = data_bytes.len() / std::mem::size_of::<f32>();
-        
+
         if num_samples > 0 {
             unsafe {
                 let data_ptr = data_bytes.as_ptr() as *const f32;
@@ -203,11 +207,11 @@ fn extract_audio_samples(sample_buffer: CMSampleBuffer) -> Result<Vec<f32>, Stri
         // We need to interleave them: L0, R0, L1, R1, ...
         let mut channel_data: Vec<Vec<f32>> = Vec::new();
         let mut max_samples = 0;
-        
+
         for buffer in &buffers {
             let data_bytes = buffer.data();
             let num_samples = data_bytes.len() / std::mem::size_of::<f32>();
-            
+
             if num_samples > 0 {
                 unsafe {
                     let data_ptr = data_bytes.as_ptr() as *const f32;
@@ -217,7 +221,7 @@ fn extract_audio_samples(sample_buffer: CMSampleBuffer) -> Result<Vec<f32>, Stri
                 }
             }
         }
-        
+
         // Interleave the channels
         let mut interleaved = Vec::with_capacity(max_samples * num_buffers);
         for i in 0..max_samples {
@@ -229,7 +233,7 @@ fn extract_audio_samples(sample_buffer: CMSampleBuffer) -> Result<Vec<f32>, Stri
                 }
             }
         }
-        
+
         return Ok(interleaved);
     }
 
@@ -239,7 +243,7 @@ fn extract_audio_samples(sample_buffer: CMSampleBuffer) -> Result<Vec<f32>, Stri
 fn samples_to_wav(samples: &[f32], sample_rate: u32, channels: u16) -> Result<Vec<u8>, String> {
     let mut buffer = Vec::new();
     let cursor = Cursor::new(&mut buffer);
-    
+
     let spec = WavSpec {
         channels,
         sample_rate,
@@ -247,18 +251,20 @@ fn samples_to_wav(samples: &[f32], sample_rate: u32, channels: u16) -> Result<Ve
         sample_format: hound::SampleFormat::Int,
     };
 
-    let mut writer = WavWriter::new(cursor, spec)
-        .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
+    let mut writer =
+        WavWriter::new(cursor, spec).map_err(|e| format!("Failed to create WAV writer: {}", e))?;
 
     // Convert f32 samples to i16
     for sample in samples {
         let clamped = sample.clamp(-1.0, 1.0);
         let i16_sample = (clamped * 32767.0) as i16;
-        writer.write_sample(i16_sample)
+        writer
+            .write_sample(i16_sample)
             .map_err(|e| format!("Failed to write sample: {}", e))?;
     }
 
-    writer.finalize()
+    writer
+        .finalize()
         .map_err(|e| format!("Failed to finalize WAV: {}", e))?;
 
     Ok(buffer)

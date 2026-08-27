@@ -31,7 +31,8 @@ function parseCommaList(value: string): string[] {
 export function ProvidersPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const { data, isLoading, update, updateAsync, isUpdating, verify, isVerifying } = useProviderSettings();
+  const { data, isLoading, update, updateAsync, isUpdating, verify, isVerifying } =
+    useProviderSettings();
   const [apiKey, setApiKey] = useState('');
   const [sttModel, setSttModel] = useState('');
   const [languageCodes, setLanguageCodes] = useState('');

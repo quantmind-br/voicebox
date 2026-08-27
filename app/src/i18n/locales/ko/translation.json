@@ -776,13 +776,13 @@
         "updatedDescription": "{{url}}에 연결되었습니다"
       },
       "keepServerRunning": {
-        "title": "앱 종료 시 서버 계속 실행",
-        "description": "앱을 닫은 후에도 서버가 백그라운드에서 계속 실행됩니다.",
+        "title": "Voicebox 종료 후에도 서버 계속 실행",
+        "description": "시스템 트레이 메뉴에서 종료를 선택한 후에도 서버가 계속 실행됩니다.",
         "failedTitle": "설정 업데이트 실패",
         "failedDescription": "설정을 백엔드에 동기화할 수 없습니다.",
         "updatedTitle": "설정 업데이트됨",
-        "runningDescription": "앱 종료 시 서버가 계속 실행됩니다",
-        "stoppedDescription": "앱 종료 시 서버가 중지됩니다"
+        "runningDescription": "Voicebox 종료 후에도 서버가 계속 실행됩니다",
+        "stoppedDescription": "Voicebox 종료 시 서버가 중지됩니다"
       },
       "networkAccess": {
         "title": "네트워크 액세스 허용",

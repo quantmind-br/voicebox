@@ -776,13 +776,13 @@
         "updatedDescription": "已连接到 {{url}}"
       },
       "keepServerRunning": {
-        "title": "关闭应用时保持服务器运行",
-        "description": "关闭应用后,服务器将继续在后台运行。",
+        "title": "退出 Voicebox 后保持服务器运行",
+        "description": "从系统托盘菜单选择退出后，服务器将继续运行。",
         "failedTitle": "更新设置失败",
         "failedDescription": "无法将设置同步到后端。",
         "updatedTitle": "设置已更新",
-        "runningDescription": "关闭应用时服务器将继续运行",
-        "stoppedDescription": "关闭应用时服务器将停止"
+        "runningDescription": "退出 Voicebox 后服务器将继续运行",
+        "stoppedDescription": "退出 Voicebox 时服务器将停止"
       },
       "networkAccess": {
         "title": "允许网络访问",

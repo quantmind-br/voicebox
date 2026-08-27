@@ -776,13 +776,13 @@
         "updatedDescription": "已連線至 {{url}}"
       },
       "keepServerRunning": {
-        "title": "關閉應用程式時保持伺服器執行",
-        "description": "關閉應用程式後,伺服器將繼續在背景執行。",
+        "title": "結束 Voicebox 後保持伺服器執行",
+        "description": "從系統匣選單選擇結束後，伺服器將繼續執行。",
         "failedTitle": "更新設定失敗",
         "failedDescription": "無法將設定同步到後端。",
         "updatedTitle": "設定已更新",
-        "runningDescription": "關閉應用程式時伺服器將繼續執行",
-        "stoppedDescription": "關閉應用程式時伺服器將停止"
+        "runningDescription": "結束 Voicebox 後伺服器將繼續執行",
+        "stoppedDescription": "結束 Voicebox 時伺服器將停止"
       },
       "networkAccess": {
         "title": "允許網路存取",

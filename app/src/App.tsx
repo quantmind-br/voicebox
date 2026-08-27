@@ -8,10 +8,10 @@ import { useAutoUpdater } from '@/hooks/useAutoUpdater';
 import { useThemeSync } from '@/hooks/useThemeSync';
 import { apiClient } from '@/lib/api/client';
 import type { HealthResponse } from '@/lib/api/types';
+import { TOP_SAFE_AREA_PADDING } from '@/lib/constants/ui';
 import { useChordSync } from '@/lib/hooks/useChordSync';
 import { useServerHealth } from '@/lib/hooks/useServer';
 import { queryClient } from '@/lib/queryClient';
-import { TOP_SAFE_AREA_PADDING } from '@/lib/constants/ui';
 import { cn } from '@/lib/utils/cn';
 import { usePlatform } from '@/platform/PlatformContext';
 import { router } from '@/router';
@@ -157,7 +157,7 @@ function MainApp() {
     return unsubscribe;
   }, [platform.lifecycle]);
 
-  // Setup window close handler and auto-start server when running in Tauri (production only)
+  // Auto-start the bundled server when running in Tauri production builds.
   useEffect(() => {
     if (!platform.metadata.isTauri) {
       const serverUrl = getDefaultServerUrl();
@@ -169,19 +169,11 @@ function MainApp() {
       return;
     }
 
-    // Setup window close handler to check setting and stop server if needed
-    // This works in both dev and prod, but will only stop server if it was started by the app
-    platform.lifecycle.setupWindowCloseHandler().catch((error) => {
-      console.error('Failed to setup window close handler:', error);
-    });
-
     // Only auto-start server in production mode
     // In dev mode, user runs server separately
     if (!import.meta.env?.PROD) {
       console.log('Dev mode: Skipping auto-start of server (run it separately)');
       setServerReady(true); // Mark as ready so UI doesn't show loading screen
-      // Mark that server was not started by app (so we don't try to stop it on close)
-      window.__voiceboxServerStartedByApp = false;
       return;
     }
 
@@ -202,13 +194,10 @@ function MainApp() {
         // Update the server URL in the store with the dynamically assigned port
         useServerStore.getState().setServerUrl(serverUrl);
         setServerReady(true);
-        // Mark that we started the server (so we know to stop it on close)
-        window.__voiceboxServerStartedByApp = true;
       })
       .catch((error) => {
         console.error('Failed to auto-start server:', error);
         serverStartingRef.current = false;
-        window.__voiceboxServerStartedByApp = false;
 
         // Only fall back to health-check polling when the error indicates the
         // port is occupied (likely an external server). For real failures
@@ -251,10 +240,7 @@ function MainApp() {
         }, 120_000);
       });
 
-    // Cleanup: stop server on actual unmount (not StrictMode remount)
-    // Note: Window close is handled separately in Tauri Rust code
     return () => {
-      // Window close event handles server shutdown based on setting
       serverStartingRef.current = false;
     };
     // Empty dependency array - platform is stable from context, only run once

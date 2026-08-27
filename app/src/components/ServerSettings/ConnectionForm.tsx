@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, XCircle } from 'lucide-react';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import * as z from 'zod';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ const connectionSchema = z.object({
 type ConnectionFormValues = z.infer<typeof connectionSchema>;
 
 export function ConnectionForm() {
+  const { t } = useTranslation();
   const platform = usePlatform();
   const serverUrl = useServerStore((state) => state.serverUrl);
   const setServerUrl = useServerStore((state) => state.setServerUrl);
@@ -128,15 +130,25 @@ export function ConnectionForm() {
               checked={keepServerRunningOnClose}
               onCheckedChange={(checked: boolean) => {
                 setKeepServerRunningOnClose(checked);
-                platform.lifecycle.setKeepServerRunning(checked).catch((error) => {
-                  console.error('Failed to sync setting to Rust:', error);
-                });
-                toast({
-                  title: 'Setting updated',
-                  description: checked
-                    ? 'Server will continue running when app closes'
-                    : 'Server will stop when app closes',
-                });
+                platform.lifecycle
+                  .setKeepServerRunning(checked)
+                  .then(() => {
+                    toast({
+                      title: t('settings.general.keepServerRunning.updatedTitle'),
+                      description: checked
+                        ? t('settings.general.keepServerRunning.runningDescription')
+                        : t('settings.general.keepServerRunning.stoppedDescription'),
+                    });
+                  })
+                  .catch((error) => {
+                    console.error('Failed to sync setting to Rust:', error);
+                    setKeepServerRunningOnClose(!checked);
+                    toast({
+                      title: t('settings.general.keepServerRunning.failedTitle'),
+                      description: t('settings.general.keepServerRunning.failedDescription'),
+                      variant: 'destructive',
+                    });
+                  });
               }}
             />
             <div className="space-y-1">
@@ -144,11 +156,11 @@ export function ConnectionForm() {
                 htmlFor="keepServerRunning"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
-                Keep server running when app closes
+                Keep server running after quitting Voicebox
               </label>
               <p className="text-sm text-muted-foreground">
-                When enabled, the server will continue running in the background after closing the
-                app. Disabled by default.
+                When enabled, the server continues running after you choose Quit from the system
+                tray. Disabled by default.
               </p>
             </div>
           </div>

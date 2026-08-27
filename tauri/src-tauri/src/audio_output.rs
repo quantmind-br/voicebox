@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host, SampleFormat, StreamConfig};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AudioOutputDevice {
@@ -12,21 +12,40 @@ pub struct AudioOutputDevice {
 
 pub struct AudioOutputState {
     host: Host,
-    stop_flag: Arc<AtomicBool>,
+    active_stop_flag: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl AudioOutputState {
     pub fn new() -> Self {
         Self {
             host: cpal::default_host(),
-            stop_flag: Arc::new(AtomicBool::new(false)),
+            active_stop_flag: Mutex::new(None),
         }
     }
 
     pub fn stop_all_playback(&self) -> Result<(), String> {
-        eprintln!("stop_all_playback: Setting stop flag");
-        self.stop_flag.store(true, Ordering::Relaxed);
-        eprintln!("stop_all_playback: Stop flag set - active streams will output silence");
+        let stop_flag = self
+            .active_stop_flag
+            .lock()
+            .map_err(|_| "Audio playback state lock is poisoned".to_string())?
+            .take();
+        if let Some(stop_flag) = stop_flag {
+            stop_flag.store(true, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    fn clear_stop_flag_if_current(&self, expected: &Arc<AtomicBool>) -> Result<(), String> {
+        let mut active = self
+            .active_stop_flag
+            .lock()
+            .map_err(|_| "Audio playback state lock is poisoned".to_string())?;
+        if active
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
+            active.take();
+        }
         Ok(())
     }
 
@@ -67,16 +86,9 @@ impl AudioOutputState {
         audio_data: Vec<u8>,
         device_ids: Vec<String>,
     ) -> Result<(), String> {
-        eprintln!("play_audio_to_devices called with {} bytes, {} device IDs", audio_data.len(), device_ids.len());
-        eprintln!("Requested device IDs: {:?}", device_ids);
-        
-        // Decode audio file (assuming WAV format)
-        eprintln!("Decoding audio data...");
         let (samples, sample_rate, channels) = self.decode_wav(&audio_data)?;
-        eprintln!("Audio decoded: {} samples, {}Hz, {} channels", samples.len(), sample_rate, channels);
+        let samples: Arc<[f32]> = samples.into();
 
-        // Find devices by ID
-        eprintln!("Enumerating output devices...");
         let devices: Vec<Device> = self
             .host
             .output_devices()
@@ -84,39 +96,84 @@ impl AudioOutputState {
             .filter_map(|device| {
                 let name = device.name().ok()?;
                 let id = format!("device_{}", name.replace(' ', "_").to_lowercase());
-                eprintln!("Found device: {} (id: {})", name, id);
-                if device_ids.contains(&id) {
-                    eprintln!("  -> Matched! Will play to this device");
-                    Some(device)
-                } else {
-                    None
-                }
+                device_ids.contains(&id).then_some(device)
             })
             .collect();
 
         if devices.is_empty() {
-            eprintln!("ERROR: No matching devices found");
             return Err("No matching devices found".to_string());
         }
 
-        eprintln!("Playing to {} device(s)", devices.len());
-        
-        // Stop any existing playback first
-        self.stop_all_playback().ok();
-        
-        // Reset stop flag for new playback
-        self.stop_flag.store(false, Ordering::Relaxed);
-        
-        // Play to each device
-        for (i, device) in devices.iter().enumerate() {
+        self.stop_all_playback()?;
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        *self
+            .active_stop_flag
+            .lock()
+            .map_err(|_| "Audio playback state lock is poisoned".to_string())? =
+            Some(stop_flag.clone());
+
+        let mut ready_receivers = Vec::with_capacity(devices.len());
+        for (index, device) in devices.into_iter().enumerate() {
             let device_name = device.name().unwrap_or_else(|_| "unknown".to_string());
-            eprintln!("Playing to device {}/{}: {}", i + 1, devices.len(), device_name);
-            self.play_to_device(device, samples.clone(), sample_rate, channels, self.stop_flag.clone())
-                .map_err(|e| format!("Failed to play to device {}: {}", device_name, e))?;
-            eprintln!("Successfully started playback on device: {}", device_name);
+            let thread_samples = samples.clone();
+            let thread_stop_flag = stop_flag.clone();
+            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+
+            let spawn_result = std::thread::Builder::new()
+                .name(format!("voicebox-audio-output-{index}"))
+                .spawn(move || {
+                    if let Err(error) = Self::play_to_device(
+                        device,
+                        thread_samples,
+                        sample_rate,
+                        channels,
+                        thread_stop_flag,
+                        ready_tx.clone(),
+                    ) {
+                        let _ = ready_tx.send(Err(error));
+                    }
+                });
+
+            if let Err(error) = spawn_result {
+                stop_flag.store(true, Ordering::Relaxed);
+                self.clear_stop_flag_if_current(&stop_flag)?;
+                return Err(format!(
+                    "Failed to start playback thread for device {}: {}",
+                    device_name, error
+                ));
+            }
+            ready_receivers.push((device_name, ready_rx));
         }
 
-        eprintln!("play_audio_to_devices completed successfully");
+        let readiness = tokio::task::spawn_blocking(move || {
+            ready_receivers
+                .into_iter()
+                .map(|(device_name, receiver)| match receiver.recv() {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(error)) => Err(format!(
+                        "Failed to play to device {}: {}",
+                        device_name, error
+                    )),
+                    Err(_) => Err(format!(
+                        "Playback thread for device {} exited before reporting readiness",
+                        device_name
+                    )),
+                })
+                .collect::<Vec<Result<(), String>>>()
+        })
+        .await
+        .map_err(|error| format!("Playback startup task failed: {}", error))?;
+
+        let errors = readiness
+            .into_iter()
+            .filter_map(Result::err)
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            stop_flag.store(true, Ordering::Relaxed);
+            self.clear_stop_flag_if_current(&stop_flag)?;
+            return Err(errors.join("; "));
+        }
+
         Ok(())
     }
 
@@ -125,7 +182,10 @@ impl AudioOutputState {
         use symphonia::core::io::MediaSourceStream;
         use symphonia::core::meta::MetadataOptions;
 
-        eprintln!("decode_wav: Creating MediaSourceStream from {} bytes", data.len());
+        eprintln!(
+            "decode_wav: Creating MediaSourceStream from {} bytes",
+            data.len()
+        );
         let mss = MediaSourceStream::new(
             Box::new(std::io::Cursor::new(data.to_vec())),
             Default::default(),
@@ -144,7 +204,7 @@ impl AudioOutputState {
                 format!("Failed to probe audio: {}", e)
             })?
             .format;
-        
+
         eprintln!("decode_wav: Audio format probed successfully");
 
         eprintln!("decode_wav: Finding audio track...");
@@ -157,13 +217,10 @@ impl AudioOutputState {
                 "No audio track found".to_string()
             })?;
 
-        let sample_rate = track
-            .codec_params
-            .sample_rate
-            .ok_or_else(|| {
-                eprintln!("decode_wav: No sample rate found in track");
-                "No sample rate found".to_string()
-            })?;
+        let sample_rate = track.codec_params.sample_rate.ok_or_else(|| {
+            eprintln!("decode_wav: No sample rate found in track");
+            "No sample rate found".to_string()
+        })?;
 
         let channels = track
             .codec_params
@@ -174,7 +231,10 @@ impl AudioOutputState {
             })?
             .count() as u16;
 
-        eprintln!("decode_wav: Track info - sample_rate: {}, channels: {}", sample_rate, channels);
+        eprintln!(
+            "decode_wav: Track info - sample_rate: {}, channels: {}",
+            sample_rate, channels
+        );
 
         eprintln!("decode_wav: Creating decoder...");
         let mut decoder = symphonia::default::get_codecs()
@@ -183,7 +243,7 @@ impl AudioOutputState {
                 eprintln!("decode_wav: Failed to create decoder: {}", e);
                 format!("Failed to create decoder: {}", e)
             })?;
-        
+
         eprintln!("decode_wav: Decoder created successfully");
 
         let mut samples = Vec::new();
@@ -199,12 +259,10 @@ impl AudioOutputState {
             };
 
             packet_count += 1;
-            let decoded = decoder
-                .decode(&packet)
-                .map_err(|e| {
-                    eprintln!("decode_wav: Decode error on packet {}: {}", packet_count, e);
-                    format!("Decode error: {}", e)
-                })?;
+            let decoded = decoder.decode(&packet).map_err(|e| {
+                eprintln!("decode_wav: Decode error on packet {}: {}", packet_count, e);
+                format!("Decode error: {}", e)
+            })?;
 
             // Convert to f32 samples by matching on the buffer type
             use symphonia::core::audio::{AudioBufferRef, Signal};
@@ -213,8 +271,6 @@ impl AudioOutputState {
             let spec = *decoded.spec();
             let num_channels = spec.channels.count();
             let num_frames = decoded.frames();
-
-            eprintln!("decode_wav: Packet {} - {} frames, {} channels", packet_count, num_frames, num_channels);
 
             // Interleave samples from all channels
             for frame_idx in 0..num_frames {
@@ -236,93 +292,75 @@ impl AudioOutputState {
             }
         }
 
-        eprintln!("decode_wav: Decoded {} packets, total {} samples", packet_count, samples.len());
-        eprintln!("decode_wav: Returning sample_rate={}, channels={}", sample_rate, channels);
+        eprintln!(
+            "decode_wav: Decoded {} packets, total {} samples",
+            packet_count,
+            samples.len()
+        );
+        eprintln!(
+            "decode_wav: Returning sample_rate={}, channels={}",
+            sample_rate, channels
+        );
         Ok((samples, sample_rate, channels))
     }
 
     fn play_to_device(
-        &self,
-        device: &Device,
-        samples: Vec<f32>,
+        device: Device,
+        samples: Arc<[f32]>,
         sample_rate: u32,
         channels: u16,
         stop_flag: Arc<AtomicBool>,
+        ready_tx: mpsc::SyncSender<Result<(), String>>,
     ) -> Result<(), String> {
-        let device_name = device.name().unwrap_or_else(|_| "unknown".to_string());
-        eprintln!("play_to_device: Starting playback to device: {}", device_name);
-        eprintln!("play_to_device: Input - {} samples, {}Hz, {} channels", samples.len(), sample_rate, channels);
-        
         let config = device
             .default_output_config()
             .map_err(|e| format!("Failed to get default config: {}", e))?;
 
-        // Prepare samples for the device's format
         let device_sample_rate = config.sample_rate().0;
         let device_channels = config.channels();
-        let device_sample_format = config.sample_format();
-        
-        eprintln!("play_to_device: Device config - {}Hz, {} channels, format: {:?}", 
-                  device_sample_rate, device_channels, device_sample_format);
-
-        // Resample if needed (simple linear interpolation for now)
-        let resampled = if device_sample_rate != sample_rate {
-            eprintln!("play_to_device: Resampling from {}Hz to {}Hz", sample_rate, device_sample_rate);
-            let result = self.resample(&samples, sample_rate, device_sample_rate);
-            eprintln!("play_to_device: Resampled {} samples to {} samples", samples.len(), result.len());
-            result
+        let resampled = (device_sample_rate != sample_rate)
+            .then(|| Self::resample(&samples, sample_rate, device_sample_rate));
+        let source_samples = resampled.as_deref().unwrap_or(&samples);
+        let buffer: Arc<[f32]> = if device_channels != channels {
+            Self::interleave_channels(source_samples, channels, device_channels).into()
+        } else if let Some(resampled) = resampled {
+            resampled.into()
         } else {
-            eprintln!("play_to_device: No resampling needed");
             samples
         };
 
-        // Interleave/convert channels if needed
-        eprintln!("play_to_device: Interleaving channels from {} to {} channels", channels, device_channels);
-        let interleaved = self.interleave_channels(&resampled, channels, device_channels);
-        eprintln!("play_to_device: Interleaved to {} samples", interleaved.len());
-
-        // Create shared buffer for playback
-        let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(interleaved));
         let position = Arc::new(AtomicUsize::new(0));
-        let buffer_clone = buffer.clone();
-        let position_clone = position.clone();
-
         let err_fn = |err| eprintln!("Playback error: {}", err);
-
         let stream_config = StreamConfig {
             channels: device_channels,
             sample_rate: cpal::SampleRate(device_sample_rate),
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let stop_flag_clone = stop_flag.clone();
         let stream = match config.sample_format() {
             SampleFormat::F32 => {
-                let buffer = buffer_clone.clone();
-                let pos = position_clone.clone();
+                let buffer = buffer.clone();
+                let position = position.clone();
+                let stop_flag = stop_flag.clone();
                 device
                     .build_output_stream(
                         &stream_config,
                         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                            // Check stop flag - if set, output silence
-                            if stop_flag_clone.load(Ordering::Relaxed) {
-                                for sample in data.iter_mut() {
-                                    *sample = 0.0;
-                                }
+                            if stop_flag.load(Ordering::Relaxed) {
+                                data.fill(0.0);
                                 return;
                             }
-                            
-                            let mut idx = pos.load(Ordering::Relaxed);
-                            let buf = buffer.lock().unwrap();
+
+                            let mut index = position.load(Ordering::Relaxed);
                             for sample in data.iter_mut() {
-                                if idx < buf.len() {
-                                    *sample = buf[idx];
-                                    idx += 1;
+                                if let Some(value) = buffer.get(index) {
+                                    *sample = *value;
+                                    index += 1;
                                 } else {
                                     *sample = 0.0;
                                 }
                             }
-                            pos.store(idx, Ordering::Relaxed);
+                            position.store(index, Ordering::Relaxed);
                         },
                         err_fn,
                         None,
@@ -330,31 +368,28 @@ impl AudioOutputState {
                     .map_err(|e| format!("Failed to build stream: {}", e))?
             }
             SampleFormat::I16 => {
-                let buffer = buffer_clone.clone();
-                let pos = position_clone.clone();
+                let buffer = buffer.clone();
+                let position = position.clone();
+                let stop_flag = stop_flag.clone();
                 device
                     .build_output_stream(
                         &stream_config,
                         move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                            // Check stop flag - if set, output silence
-                            if stop_flag_clone.load(Ordering::Relaxed) {
-                                for sample in data.iter_mut() {
-                                    *sample = 0;
-                                }
+                            if stop_flag.load(Ordering::Relaxed) {
+                                data.fill(0);
                                 return;
                             }
-                            
-                            let mut idx = pos.load(Ordering::Relaxed);
-                            let buf = buffer.lock().unwrap();
+
+                            let mut index = position.load(Ordering::Relaxed);
                             for sample in data.iter_mut() {
-                                if idx < buf.len() {
-                                    *sample = (buf[idx] * 32767.0) as i16;
-                                    idx += 1;
+                                if let Some(value) = buffer.get(index) {
+                                    *sample = (*value * 32767.0) as i16;
+                                    index += 1;
                                 } else {
                                     *sample = 0;
                                 }
                             }
-                            pos.store(idx, Ordering::Relaxed);
+                            position.store(index, Ordering::Relaxed);
                         },
                         err_fn,
                         None,
@@ -362,31 +397,28 @@ impl AudioOutputState {
                     .map_err(|e| format!("Failed to build stream: {}", e))?
             }
             SampleFormat::U16 => {
-                let buffer = buffer_clone.clone();
-                let pos = position_clone.clone();
+                let buffer = buffer.clone();
+                let position = position.clone();
+                let stop_flag = stop_flag.clone();
                 device
                     .build_output_stream(
                         &stream_config,
                         move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                            // Check stop flag - if set, output silence
-                            if stop_flag_clone.load(Ordering::Relaxed) {
-                                for sample in data.iter_mut() {
-                                    *sample = 32768;
-                                }
+                            if stop_flag.load(Ordering::Relaxed) {
+                                data.fill(32768);
                                 return;
                             }
-                            
-                            let mut idx = pos.load(Ordering::Relaxed);
-                            let buf = buffer.lock().unwrap();
+
+                            let mut index = position.load(Ordering::Relaxed);
                             for sample in data.iter_mut() {
-                                if idx < buf.len() {
-                                    *sample = ((buf[idx] + 1.0) * 32767.5) as u16;
-                                    idx += 1;
+                                if let Some(value) = buffer.get(index) {
+                                    *sample = ((*value + 1.0) * 32767.5) as u16;
+                                    index += 1;
                                 } else {
                                     *sample = 32768;
                                 }
                             }
-                            pos.store(idx, Ordering::Relaxed);
+                            position.store(index, Ordering::Relaxed);
                         },
                         err_fn,
                         None,
@@ -396,35 +428,22 @@ impl AudioOutputState {
             _ => return Err("Unsupported sample format".to_string()),
         };
 
-        eprintln!("play_to_device: Starting stream playback...");
-        stream.play().map_err(|e| {
-            eprintln!("play_to_device: Failed to play stream: {}", e);
-            format!("Failed to play stream: {}", e)
-        })?;
+        stream
+            .play()
+            .map_err(|e| format!("Failed to play stream: {}", e))?;
+        let _ = ready_tx.send(Ok(()));
 
-        eprintln!("play_to_device: Stream started successfully");
-
-        // Keep the stream alive until playback finishes.
-        // Previously the stream was dropped immediately on function return,
-        // causing silent playback (cpal stops output when its Stream is dropped).
-        let total_samples = {
-            buffer.lock().unwrap().len()
-        };
-        loop {
-            let pos = position.load(std::sync::atomic::Ordering::Relaxed);
-            if pos >= total_samples || stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                break;
-            }
+        let total_samples = buffer.len();
+        while position.load(Ordering::Relaxed) < total_samples && !stop_flag.load(Ordering::Relaxed)
+        {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        // stream is dropped here, after audio has finished playing
         drop(stream);
-        eprintln!("play_to_device: Function completed successfully");
         Ok(())
     }
 
-    fn resample(&self, samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
         if from_rate == to_rate {
             return samples.to_vec();
         }
@@ -445,12 +464,7 @@ impl AudioOutputState {
         resampled
     }
 
-    fn interleave_channels(
-        &self,
-        samples: &[f32],
-        src_channels: u16,
-        dst_channels: u16,
-    ) -> Vec<f32> {
+    fn interleave_channels(samples: &[f32], src_channels: u16, dst_channels: u16) -> Vec<f32> {
         if src_channels == dst_channels {
             return samples.to_vec();
         }
@@ -460,7 +474,11 @@ impl AudioOutputState {
 
         for i in 0..samples_per_channel {
             for ch in 0..dst_channels {
-                let src_ch = if ch < src_channels { ch } else { src_channels - 1 };
+                let src_ch = if ch < src_channels {
+                    ch
+                } else {
+                    src_channels - 1
+                };
                 let idx = (i * src_channels as usize) + src_ch as usize;
                 if idx < samples.len() {
                     interleaved.push(samples[idx]);

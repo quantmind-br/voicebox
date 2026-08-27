@@ -91,7 +91,10 @@ fn select_capture_device(host: &cpal::Host, monitor_source: Option<&str>) -> Opt
             .unwrap_or(false)
     }) {
         let name = devices[pos].name().unwrap_or_default();
-        eprintln!("Linux audio capture: Found monitor device by name: {}", name);
+        eprintln!(
+            "Linux audio capture: Found monitor device by name: {}",
+            name
+        );
         return devices.into_iter().nth(pos);
     }
 

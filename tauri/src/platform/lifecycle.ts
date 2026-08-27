@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { emit, listen } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
 import type { PlatformLifecycle, ServerLogEntry } from '@/platform/types';
 
 class TauriLifecycle implements PlatformLifecycle {
@@ -58,41 +58,6 @@ class TauriLifecycle implements PlatformLifecycle {
     } catch (error) {
       console.error('Failed to set backend override:', error);
       throw error;
-    }
-  }
-
-  async setupWindowCloseHandler(): Promise<void> {
-    try {
-      // Listen for window close request from Rust
-      await listen<null>('window-close-requested', async () => {
-        // Import store here to avoid circular dependency
-        const { useServerStore } = await import('@/stores/serverStore');
-        const keepRunning = useServerStore.getState().keepServerRunningOnClose;
-
-        // Check if server was started by this app instance
-        // @ts-expect-error - accessing module-level variable from another module
-        const serverStartedByApp = window.__voiceboxServerStartedByApp ?? false;
-
-        console.log(
-          '[lifecycle] window-close-requested: keepRunning=%s, serverStartedByApp=%s',
-          keepRunning,
-          serverStartedByApp,
-        );
-
-        if (!keepRunning && serverStartedByApp) {
-          // Stop server before closing (only if we started it)
-          try {
-            await this.stopServer();
-          } catch (error) {
-            console.error('Failed to stop server on close:', error);
-          }
-        }
-
-        // Emit event back to Rust to allow close
-        await emit('window-close-allowed');
-      });
-    } catch (error) {
-      console.error('Failed to setup window close handler:', error);
     }
   }
 

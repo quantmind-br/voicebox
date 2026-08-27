@@ -776,13 +776,13 @@
         "updatedDescription": "Connesso a {{url}}"
       },
       "keepServerRunning": {
-        "title": "Mantieni il server in esecuzione alla chiusura dell'app",
-        "description": "Il server continuerà a funzionare in background dopo la chiusura dell'applicazione.",
+        "title": "Mantieni il server in esecuzione dopo l'uscita da Voicebox",
+        "description": "Il server continuerà a funzionare dopo aver scelto Esci dal menu dell'area di notifica.",
         "failedTitle": "Impossibile aggiornare l'impostazione",
         "failedDescription": "Impossibile sincronizzare l'impostazione con il backend.",
         "updatedTitle": "Impostazione aggiornata",
-        "runningDescription": "Il server rimarrà in esecuzione alla chiusura dell'app",
-        "stoppedDescription": "Il server si arresterà alla chiusura dell'app"
+        "runningDescription": "Il server rimarrà in esecuzione dopo l'uscita da Voicebox",
+        "stoppedDescription": "Il server si arresterà all'uscita da Voicebox"
       },
       "networkAccess": {
         "title": "Consenti l'accesso alla rete",

@@ -61,7 +61,6 @@ export interface PlatformLifecycle {
   restartServer(modelsDir?: string | null): Promise<string>;
   setKeepServerRunning(keep: boolean): Promise<void>;
   setBackendOverride(backend?: string | null): Promise<void>;
-  setupWindowCloseHandler(): Promise<void>;
   subscribeToServerLogs(callback: (entry: ServerLogEntry) => void): () => void;
   onServerReady?: () => void;
 }

@@ -21,9 +21,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 
-use wl_clipboard_rs::copy::{
-    self, MimeSource, MimeType as CopyMimeType, Options, Source,
-};
+use wl_clipboard_rs::copy::{self, MimeSource, MimeType as CopyMimeType, Options, Source};
 use wl_clipboard_rs::paste::{
     get_contents, get_mime_types, ClipboardType, Error as PasteError, MimeType as PasteMimeType,
     Seat,
@@ -111,10 +109,7 @@ pub fn write_text(text: &str) -> Result<(), String> {
     // whatever the user said, so pass it through untouched.
     options.trim_newline(false);
     options
-        .copy(
-            Source::Bytes(text.as_bytes().into()),
-            CopyMimeType::Text,
-        )
+        .copy(Source::Bytes(text.as_bytes().into()), CopyMimeType::Text)
         .map_err(|e| format!("could not write clipboard text: {e}"))
 }
 
@@ -212,7 +207,9 @@ mod tests {
         let snapshot = read_all().expect("snapshot the clipboard");
         let before = content_token().expect("token before staging");
         assert!(
-            snapshot.iter().any(|(_, bytes)| bytes == ORIGINAL.as_bytes()),
+            snapshot
+                .iter()
+                .any(|(_, bytes)| bytes == ORIGINAL.as_bytes()),
             "snapshot did not capture the seeded text: {:?}",
             snapshot.iter().map(|(m, _)| m).collect::<Vec<_>>()
         );

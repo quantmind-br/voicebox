@@ -6,7 +6,11 @@ import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import type { EffectConfig } from '@/lib/api/types';
 import { isApiEngine } from '@/lib/constants/engines';
-import { GENERATION_LANGUAGE_CODES, type GenerationLanguageCode } from '@/lib/constants/languages';
+import {
+  GENERATION_LANGUAGE_CODES,
+  type GenerationLanguageCode,
+  getLanguageOptionsForEngine,
+} from '@/lib/constants/languages';
 import { useGeneration } from '@/lib/hooks/useGeneration';
 import { useModelDownloadToast } from '@/lib/hooks/useModelDownloadToast';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
@@ -62,15 +66,22 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
     enabled: !!downloadingModelName,
   });
 
+  const initialEngine =
+    options.defaultValues?.engine ?? ((selectedEngine as GenerationFormValues['engine']) || 'qwen');
+  const initialAvailableLangs = getLanguageOptionsForEngine(initialEngine);
+  const initialLanguage = initialAvailableLangs.some((l) => l.value === 'en')
+    ? ('en' as const)
+    : ((initialAvailableLangs[0]?.value ?? 'auto') as GenerationLanguageCode);
+
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationSchema),
     defaultValues: {
       text: '',
-      language: 'en',
+      language: initialLanguage,
       seed: undefined,
       modelSize: '1.7B',
       instruct: '',
-      engine: (selectedEngine as GenerationFormValues['engine']) || 'qwen',
+      engine: initialEngine,
       personality: false,
       ...options.defaultValues,
     },

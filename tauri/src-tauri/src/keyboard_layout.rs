@@ -82,10 +82,7 @@ mod macos {
     #[link(name = "Carbon", kind = "framework")]
     extern "C" {
         fn TISCopyCurrentKeyboardLayoutInputSource() -> TISInputSourceRef;
-        fn TISGetInputSourceProperty(
-            source: TISInputSourceRef,
-            key: CFStringRef,
-        ) -> *mut c_void;
+        fn TISGetInputSourceProperty(source: TISInputSourceRef, key: CFStringRef) -> *mut c_void;
         fn LMGetKbdType() -> u8;
         fn UCKeyTranslate(
             keyboard_layout: *const u8,

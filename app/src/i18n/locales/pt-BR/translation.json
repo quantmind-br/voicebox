@@ -776,13 +776,13 @@
         "updatedDescription": "Conectado a {{url}}"
       },
       "keepServerRunning": {
-        "title": "Manter o servidor rodando ao fechar o app",
-        "description": "O servidor continuará rodando em segundo plano após fechar o app.",
+        "title": "Manter o servidor rodando após sair do Voicebox",
+        "description": "O servidor continuará rodando após você escolher Sair no menu da bandeja do sistema.",
         "failedTitle": "Falha ao atualizar a configuração",
         "failedDescription": "Não foi possível sincronizar a configuração com o backend.",
         "updatedTitle": "Configuração atualizada",
-        "runningDescription": "O servidor continuará rodando ao fechar o app",
-        "stoppedDescription": "O servidor será parado ao fechar o app"
+        "runningDescription": "O servidor continuará rodando após sair do Voicebox",
+        "stoppedDescription": "O servidor será parado ao sair do Voicebox"
       },
       "networkAccess": {
         "title": "Permitir acesso à rede",

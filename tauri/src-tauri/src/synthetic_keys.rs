@@ -157,8 +157,7 @@ pub fn send_paste() -> Result<(), String> {
 #[cfg(target_os = "windows")]
 mod win {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-        VIRTUAL_KEY,
+        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VIRTUAL_KEY,
     };
 
     pub fn make_key(vk: VIRTUAL_KEY, up: bool) -> INPUT {
@@ -184,9 +183,7 @@ mod win {
 
 #[cfg(target_os = "windows")]
 pub fn send_paste() -> Result<(), String> {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, VK_CONTROL, VK_V,
-    };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, VK_CONTROL, VK_V};
 
     // Four-event Ctrl+V sequence. Matches the macOS CGEvent pattern: the
     // modifier brackets the letter so the target app sees a fully formed

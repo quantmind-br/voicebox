@@ -17,19 +17,89 @@ mod linux;
 mod speak_monitor;
 mod synthetic_keys;
 
-use std::sync::Mutex;
+use std::sync::{atomic::{AtomicBool, Ordering}, Mutex};
 use tauri::{command, State, Manager, WindowEvent, Emitter, Listener, RunEvent, WebviewUrl, WebviewWindowBuilder};
+#[cfg(desktop)]
+use tauri::{menu::MenuBuilder, tray::TrayIconBuilder};
 // Only the platforms that can position their own toplevel use this; on
 // Wayland every call site is compiled out.
 #[cfg(not(target_os = "linux"))]
 use tauri::PhysicalPosition;
 use tauri_plugin_shell::ShellExt;
-use tokio::sync::mpsc;
 
 pub const DICTATE_WINDOW_LABEL: &str = "dictate";
 const DICTATE_WINDOW_WIDTH: f64 = 420.0;
 const DICTATE_WINDOW_HEIGHT: f64 = 64.0;
 const DICTATE_WINDOW_TITLE: &str = "Voicebox Dictate";
+
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_MENU_OPEN_ID: &str = "open";
+const TRAY_MENU_QUIT_ID: &str = "quit";
+
+#[derive(Default)]
+struct AppLifecycleState {
+    quitting: AtomicBool,
+    tray_available: AtomicBool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseAction {
+    HideToTray,
+    Close,
+}
+
+fn close_action(window_label: &str, quitting: bool, tray_available: bool) -> CloseAction {
+    if window_label == MAIN_WINDOW_LABEL && !quitting && tray_available {
+        CloseAction::HideToTray
+    } else {
+        CloseAction::Close
+    }
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod close_policy_tests {
+    use super::{close_action, CloseAction, DICTATE_WINDOW_LABEL, MAIN_WINDOW_LABEL};
+
+    #[test]
+    fn main_window_hides_to_tray_during_normal_operation() {
+        assert_eq!(
+            close_action(MAIN_WINDOW_LABEL, false, true),
+            CloseAction::HideToTray
+        );
+    }
+
+    #[test]
+    fn main_window_closes_during_explicit_quit() {
+        assert_eq!(
+            close_action(MAIN_WINDOW_LABEL, true, true),
+            CloseAction::Close
+        );
+    }
+
+    #[test]
+    fn main_window_closes_when_tray_is_unavailable() {
+        assert_eq!(
+            close_action(MAIN_WINDOW_LABEL, false, false),
+            CloseAction::Close
+        );
+    }
+
+    #[test]
+    fn auxiliary_windows_keep_native_close_behavior() {
+        assert_eq!(
+            close_action(DICTATE_WINDOW_LABEL, false, true),
+            CloseAction::Close
+        );
+    }
+}
 
 /// How far down the monitor the pill sits, as a fraction of its height.
 const DICTATE_TOP_MARGIN_RATIO: f64 = 0.04;
@@ -1568,6 +1638,9 @@ async fn debug_clipboard_roundtrip(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -1580,6 +1653,7 @@ pub fn run() {
         })
         .manage(audio_capture::AudioCaptureState::new())
         .manage(audio_output::AudioOutputState::new())
+        .manage(AppLifecycleState::default())
         .setup(|app| {
             #[cfg(desktop)]
             {
@@ -1642,6 +1716,39 @@ pub fn run() {
 
                 ensure_dictate_window(app.handle());
                 speak_monitor::spawn_speak_monitor(app.handle().clone());
+
+                let tray_menu = MenuBuilder::new(app)
+                    .text(TRAY_MENU_OPEN_ID, "Open Voicebox")
+                    .separator()
+                    .text(TRAY_MENU_QUIT_ID, "Quit")
+                    .build()?;
+                let mut tray_builder = TrayIconBuilder::with_id("voicebox")
+                    .menu(&tray_menu)
+                    .tooltip("Voicebox")
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        TRAY_MENU_OPEN_ID => show_main_window(app),
+                        TRAY_MENU_QUIT_ID => {
+                            app.state::<AppLifecycleState>().quitting.store(true, Ordering::SeqCst);
+                            app.exit(0);
+                        }
+                        _ => {}
+                    });
+                if let Some(icon) = app.default_window_icon() {
+                    tray_builder = tray_builder.icon(icon.clone());
+                }
+                match tray_builder.build(app) {
+                    Ok(_) => {
+                        app.state::<AppLifecycleState>()
+                            .tray_available
+                            .store(true, Ordering::SeqCst);
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "Failed to create tray icon; using normal close behavior: {}",
+                            error
+                        );
+                    }
+                }
             }
 
             // Hide title bar icon on Windows
@@ -1702,52 +1809,17 @@ pub fn run() {
             disable_hotkey,
             update_chord_bindings
         ])
-        .on_window_event({
-            let closing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            move |window, event| {
+        .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // If we're already in the close flow, let it proceed
-                if closing.load(std::sync::atomic::Ordering::SeqCst) {
-                    return;
+                let lifecycle = window.state::<AppLifecycleState>();
+                let quitting = lifecycle.quitting.load(Ordering::SeqCst);
+                let tray_available = lifecycle.tray_available.load(Ordering::SeqCst);
+                if close_action(window.label(), quitting, tray_available) == CloseAction::HideToTray {
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
-                closing.store(true, std::sync::atomic::Ordering::SeqCst);
-
-                // Prevent automatic close so frontend can clean up
-                api.prevent_close();
-
-                // Emit event to frontend to check setting and stop server if needed
-                let app_handle = window.app_handle();
-
-                if let Err(e) = app_handle.emit("window-close-requested", ()) {
-                    eprintln!("Failed to emit window-close-requested event: {}", e);
-                    window.close().ok();
-                    return;
-                }
-
-                // Set up listener for frontend response
-                let window_for_close = window.clone();
-                let closing_for_timeout = closing.clone();
-                let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-
-                let listener_id = window.listen("window-close-allowed", move |_| {
-                    let _ = tx.send(());
-                });
-
-                tauri::async_runtime::spawn(async move {
-                    tokio::select! {
-                        _ = rx.recv() => {
-                            window_for_close.close().ok();
-                        }
-                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                            eprintln!("Window close timeout, closing anyway");
-                            window_for_close.close().ok();
-                        }
-                    }
-                    window_for_close.unlisten(listener_id);
-                    closing_for_timeout.store(false, std::sync::atomic::Ordering::SeqCst);
-                });
             }
-        }})
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
@@ -1814,6 +1886,8 @@ pub fn run() {
                         }
                     }
                 }
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { .. } => show_main_window(app),
                 RunEvent::ExitRequested { api, .. } => {
                     println!("RunEvent::ExitRequested received");
                     // Don't prevent exit, just log it

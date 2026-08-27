@@ -776,13 +776,13 @@
         "updatedDescription": "Connected to {{url}}"
       },
       "keepServerRunning": {
-        "title": "Keep server running when app closes",
-        "description": "The server will continue running in the background after closing the app.",
+        "title": "Keep server running after quitting Voicebox",
+        "description": "The server will continue running after you choose Quit from the system tray.",
         "failedTitle": "Failed to update setting",
         "failedDescription": "Could not sync setting to backend.",
         "updatedTitle": "Setting updated",
-        "runningDescription": "Server will continue running when app closes",
-        "stoppedDescription": "Server will stop when app closes"
+        "runningDescription": "Server will continue running after Voicebox quits",
+        "stoppedDescription": "Server will stop when Voicebox quits"
       },
       "networkAccess": {
         "title": "Allow network access",

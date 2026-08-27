@@ -63,8 +63,8 @@ fn socket_path() -> Option<PathBuf> {
 /// is the framing.
 fn request(payload: &str) -> Result<String, String> {
     let path = socket_path().ok_or("not running under Hyprland")?;
-    let mut stream = UnixStream::connect(&path)
-        .map_err(|e| format!("Hyprland IPC connect failed: {e}"))?;
+    let mut stream =
+        UnixStream::connect(&path).map_err(|e| format!("Hyprland IPC connect failed: {e}"))?;
     stream
         .set_read_timeout(Some(IPC_TIMEOUT))
         .and_then(|_| stream.set_write_timeout(Some(IPC_TIMEOUT)))
@@ -195,7 +195,11 @@ fn hyprctl(args: &[&str]) -> Result<String, String> {
         return Err(format!(
             "hyprctl {} rejected: {}",
             args.join(" "),
-            if stdout.is_empty() { stderr.trim() } else { &stdout }
+            if stdout.is_empty() {
+                stderr.trim()
+            } else {
+                &stdout
+            }
         ));
     }
     Ok(stdout)
@@ -210,7 +214,9 @@ pub fn focus_address(address: &str) -> Result<(), String> {
     // they're compositor-issued hex handles rather than user input. Validate
     // anyway — this string is interpolated into a Lua expression below.
     if !address.starts_with("0x") || !address[2..].chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("refusing to dispatch on malformed address {address:?}"));
+        return Err(format!(
+            "refusing to dispatch on malformed address {address:?}"
+        ));
     }
     match dialect() {
         // `hl.dsp.focus{…}` only *builds* a dispatcher; handing it to
@@ -329,13 +335,27 @@ mod tests {
 
     #[test]
     fn logical_size_divides_by_scale() {
-        let monitor = Monitor { x: 0, y: 0, width: 3840, height: 2160, scale: 1.5, focused: true };
+        let monitor = Monitor {
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2160,
+            scale: 1.5,
+            focused: true,
+        };
         assert_eq!(monitor.logical_size(), (2560, 1440));
     }
 
     #[test]
     fn logical_size_survives_a_bogus_scale() {
-        let monitor = Monitor { x: 0, y: 0, width: 1920, height: 1080, scale: 0.0, focused: true };
+        let monitor = Monitor {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            scale: 0.0,
+            focused: true,
+        };
         assert_eq!(monitor.logical_size(), (1920, 1080));
     }
 
@@ -354,7 +374,10 @@ mod tests {
 
         let monitor = focused_monitor().expect("read the focused monitor");
         let (width, height) = monitor.logical_size();
-        assert!(width > 0 && height > 0, "monitor reported a zero logical size");
+        assert!(
+            width > 0 && height > 0,
+            "monitor reported a zero logical size"
+        );
 
         // An empty desktop legitimately has no active window, so only the
         // call is asserted, not its content.
