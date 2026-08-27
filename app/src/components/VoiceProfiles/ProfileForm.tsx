@@ -37,6 +37,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import type { EffectConfig, PresetVoice, VoiceType } from '@/lib/api/types';
+import { PRESET_ONLY_ENGINES } from '@/lib/constants/engines';
 import { LANGUAGE_CODES, LANGUAGE_OPTIONS, type LanguageCode } from '@/lib/constants/languages';
 import { useAudioPlayer } from '@/lib/hooks/useAudioPlayer';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
@@ -61,7 +62,6 @@ import { AudioSampleUpload } from './AudioSampleUpload';
 import { SampleList } from './SampleList';
 
 const MAX_AUDIO_DURATION_SECONDS = 30;
-const PRESET_ONLY_ENGINES = new Set(['kokoro', 'qwen_custom_voice']);
 const DEFAULT_ENGINE_OPTIONS = [
   { value: 'qwen', label: 'Qwen3-TTS' },
   { value: 'qwen_custom_voice', label: 'Qwen CustomVoice' },
@@ -70,6 +70,7 @@ const DEFAULT_ENGINE_OPTIONS = [
   { value: 'chatterbox_turbo', label: 'Chatterbox Turbo' },
   { value: 'tada', label: 'TADA' },
   { value: 'kokoro', label: 'Kokoro 82M' },
+  { value: 'gemini', label: 'Gemini TTS' },
 ] as const;
 
 function makeProfileSchema(t: (key: string) => string) {
@@ -290,7 +291,7 @@ export function ProfileForm() {
     ? voiceSource === 'clone'
     : editingProfile?.voice_type !== 'preset';
   const availableDefaultEngines = DEFAULT_ENGINE_OPTIONS.filter(
-    (option) => !isSampleBasedProfile || !PRESET_ONLY_ENGINES.has(option.value),
+    (option) => !isSampleBasedProfile || !PRESET_ONLY_ENGINES[option.value],
   );
 
   // Show recording errors
@@ -898,6 +899,7 @@ export function ProfileForm() {
                               <SelectContent>
                                 <SelectItem value="kokoro">Kokoro 82M</SelectItem>
                                 <SelectItem value="qwen_custom_voice">Qwen CustomVoice</SelectItem>
+                                <SelectItem value="gemini">Gemini TTS</SelectItem>
                               </SelectContent>
                             </Select>
                           </FormItem>
@@ -912,8 +914,7 @@ export function ProfileForm() {
                                   type="button"
                                   onClick={() => {
                                     setSelectedPresetVoiceId(voice.voice_id);
-                                    // Auto-set language from voice
-                                    if (voice.language) {
+                                    if (voice.language && voice.language !== 'auto') {
                                       form.setValue('language', voice.language as LanguageCode);
                                     }
                                   }}
@@ -932,6 +933,11 @@ export function ProfileForm() {
                                       {voice.language}
                                     </Badge>
                                   </div>
+                                  {voice.description ? (
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                      {voice.description}
+                                    </div>
+                                  ) : null}
                                 </button>
                               ))}
                             </div>
@@ -1086,13 +1092,22 @@ export function ProfileForm() {
                               (v: PresetVoice) => v.voice_id === editingProfile.preset_voice_id,
                             );
                             return voice ? (
-                              <div className="flex gap-1.5">
-                                <Badge variant="outline" className="text-xs">
-                                  {voice.gender}
-                                </Badge>
-                                <Badge variant="outline" className="text-xs">
-                                  {voice.language}
-                                </Badge>
+                              <div className="space-y-1.5">
+                                <div className="flex gap-1.5">
+                                  <Badge variant="outline" className="text-xs">
+                                    {voice.gender}
+                                  </Badge>
+                                  {voice.language ? (
+                                    <Badge variant="outline" className="text-xs">
+                                      {voice.language}
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                {voice.description ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    {voice.description}
+                                  </span>
+                                ) : null}
                               </div>
                             ) : null;
                           })()}
@@ -1207,9 +1222,7 @@ export function ProfileForm() {
                             {...field}
                           />
                         </FormControl>
-                        <FormDescription>
-                          {t('profileForm.fields.personalityHint')}
-                        </FormDescription>
+                        <FormDescription>{t('profileForm.fields.personalityHint')}</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}

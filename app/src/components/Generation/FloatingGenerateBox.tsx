@@ -16,8 +16,9 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
+import { PRESET_ONLY_ENGINES } from '@/lib/constants/engines';
 import { getLanguageOptionsForEngine, type LanguageCode } from '@/lib/constants/languages';
-import { useGenerationForm } from '@/lib/hooks/useGenerationForm';
+import { type GenerationFormValues, useGenerationForm } from '@/lib/hooks/useGenerationForm';
 import { useProfile, useProfiles } from '@/lib/hooks/useProfiles';
 import { useStory } from '@/lib/hooks/useStories';
 import { cn } from '@/lib/utils/cn';
@@ -144,14 +145,6 @@ export function FloatingGenerateBox({
   }, [watchedEngine, setSelectedEngine]);
 
   // Sync generation form language, engine, and effects with selected profile
-  type EngineValue =
-    | 'qwen'
-    | 'luxtts'
-    | 'chatterbox'
-    | 'chatterbox_turbo'
-    | 'tada'
-    | 'kokoro'
-    | 'qwen_custom_voice';
   useEffect(() => {
     if (selectedProfile?.language) {
       form.setValue('language', selectedProfile.language as LanguageCode);
@@ -159,12 +152,11 @@ export function FloatingGenerateBox({
     // Auto-switch engine to match the profile
     const engine = selectedProfile?.default_engine ?? selectedProfile?.preset_engine;
     if (engine) {
-      form.setValue('engine', engine as EngineValue);
+      form.setValue('engine', engine as GenerationFormValues['engine']);
     } else if (selectedProfile && selectedProfile.voice_type !== 'preset') {
       // Cloned/designed profile with no default — ensure a compatible (non-preset) engine
       const currentEngine = form.getValues('engine');
-      const presetEngines = new Set(['kokoro', 'qwen_custom_voice']);
-      if (currentEngine && presetEngines.has(currentEngine)) {
+      if (currentEngine && PRESET_ONLY_ENGINES[currentEngine]) {
         form.setValue('engine', 'qwen');
       }
     }
@@ -418,13 +410,19 @@ export function FloatingGenerateBox({
                                         ? 'bg-accent text-accent-foreground border border-accent hover:bg-accent/90'
                                         : 'bg-card border border-border hover:bg-background/50',
                                     )}
-                                    aria-label={active ? t('generation.persona.ariaLabelActive') : t('generation.persona.ariaLabelInactive')}
+                                    aria-label={
+                                      active
+                                        ? t('generation.persona.ariaLabelActive')
+                                        : t('generation.persona.ariaLabelInactive')
+                                    }
                                     aria-pressed={active}
                                   >
                                     <Wand2 className="h-4 w-4" />
                                   </Button>
                                   <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs text-popover-foreground border border-border opacity-0 transition-opacity group-hover:opacity-100 z-[9999]">
-                                    {active ? t('generation.persona.tooltipActive') : t('generation.persona.tooltipInactive')}
+                                    {active
+                                      ? t('generation.persona.tooltipActive')
+                                      : t('generation.persona.tooltipInactive')}
                                   </span>
                                 </div>
                               </FormControl>
@@ -438,40 +436,41 @@ export function FloatingGenerateBox({
 
                 {/* Instruct toggle — only for Qwen CustomVoice, which actually honors the kwarg */}
                 <AnimatePresence>
-                  {isExpanded && form.watch('engine') === 'qwen_custom_voice' && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <div className="group relative">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setIsInstructExpanded((prev) => !prev)}
-                          className={cn(
-                            'h-10 w-10 rounded-full transition-all duration-200',
-                            isInstructExpanded
-                              ? 'bg-accent text-accent-foreground border border-accent hover:bg-accent/90'
-                              : 'bg-card border border-border hover:bg-background/50',
-                          )}
-                          aria-label={
-                            isInstructExpanded
-                              ? t('generation.instruct.hide')
-                              : t('generation.instruct.show')
-                          }
-                          aria-pressed={isInstructExpanded}
-                        >
-                          <SlidersHorizontal className="h-4 w-4" />
-                        </Button>
-                        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs text-popover-foreground border border-border opacity-0 transition-opacity group-hover:opacity-100 z-[9999]">
-                          {t('generation.instruct.tooltip')}
-                        </span>
-                      </div>
-                    </motion.div>
-                  )}
+                  {isExpanded &&
+                    ['qwen_custom_voice', 'gemini'].includes(form.watch('engine') ?? '') && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <div className="group relative">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setIsInstructExpanded((prev) => !prev)}
+                            className={cn(
+                              'h-10 w-10 rounded-full transition-all duration-200',
+                              isInstructExpanded
+                                ? 'bg-accent text-accent-foreground border border-accent hover:bg-accent/90'
+                                : 'bg-card border border-border hover:bg-background/50',
+                            )}
+                            aria-label={
+                              isInstructExpanded
+                                ? t('generation.instruct.hide')
+                                : t('generation.instruct.show')
+                            }
+                            aria-pressed={isInstructExpanded}
+                          >
+                            <SlidersHorizontal className="h-4 w-4" />
+                          </Button>
+                          <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-md bg-popover px-3 py-1.5 text-xs text-popover-foreground border border-border opacity-0 transition-opacity group-hover:opacity-100 z-[9999]">
+                            {t('generation.instruct.tooltip')}
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
                 </AnimatePresence>
 
                 <div className="group relative">
@@ -507,34 +506,35 @@ export function FloatingGenerateBox({
 
             {/* Additive instruct textarea — shown below main text when toggle is on and engine supports it */}
             <AnimatePresence>
-              {isInstructExpanded && form.watch('engine') === 'qwen_custom_voice' && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                  className="overflow-hidden"
-                >
-                  <FormField
-                    control={form.control}
-                    name="instruct"
-                    render={({ field }) => (
-                      <FormItem className="mt-2">
-                        <FormControl>
-                          <Textarea
-                            {...field}
-                            placeholder={t('generation.instruct.placeholder')}
-                            className="resize-none bg-transparent border border-accent/20 focus-visible:ring-1 focus-visible:ring-accent/40 rounded-2xl text-sm placeholder:text-muted-foreground/60 w-full px-3 py-2"
-                            style={{ minHeight: '60px', maxHeight: '160px' }}
-                            maxLength={500}
-                          />
-                        </FormControl>
-                        <FormMessage className="text-xs" />
-                      </FormItem>
-                    )}
-                  />
-                </motion.div>
-              )}
+              {isInstructExpanded &&
+                ['qwen_custom_voice', 'gemini'].includes(form.watch('engine') ?? '') && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: 'easeOut' }}
+                    className="overflow-hidden"
+                  >
+                    <FormField
+                      control={form.control}
+                      name="instruct"
+                      render={({ field }) => (
+                        <FormItem className="mt-2">
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              placeholder={t('generation.instruct.placeholder')}
+                              className="resize-none bg-transparent border border-accent/20 focus-visible:ring-1 focus-visible:ring-accent/40 rounded-2xl text-sm placeholder:text-muted-foreground/60 w-full px-3 py-2"
+                              style={{ minHeight: '60px', maxHeight: '160px' }}
+                              maxLength={500}
+                            />
+                          </FormControl>
+                          <FormMessage className="text-xs" />
+                        </FormItem>
+                      )}
+                    />
+                  </motion.div>
+                )}
             </AnimatePresence>
 
             <AnimatePresence>
@@ -565,7 +565,6 @@ export function FloatingGenerateBox({
                       </Select>
                     </div>
                   )}
-
 
                   <FormField
                     control={form.control}

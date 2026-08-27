@@ -14,15 +14,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { VoiceProfileResponse } from '@/lib/api/types';
+import { ENGINE_DISPLAY_NAMES } from '@/lib/constants/engines';
 import { useDeleteProfile, useExportProfile } from '@/lib/hooks/useProfiles';
 import { cn } from '@/lib/utils/cn';
 import { useUIStore } from '@/stores/uiStore';
-
-/** Human-readable display names for preset engine badges. */
-const ENGINE_DISPLAY_NAMES: Record<string, string> = {
-  kokoro: 'Kokoro',
-  qwen_custom_voice: 'CustomVoice',
-};
 
 interface ProfileCardProps {
   profile: VoiceProfileResponse;
@@ -126,9 +121,7 @@ export function ProfileCard({ profile, disabled }: ProfileCardProps) {
             {profile.effects_chain && profile.effects_chain.length > 0 && (
               <Sparkles className="h-3.5 w-3.5 text-accent fill-accent" />
             )}
-            {profile.personality?.trim() && (
-              <Wand2 className="h-3.5 w-3.5 text-accent" />
-            )}
+            {profile.personality?.trim() && <Wand2 className="h-3.5 w-3.5 text-accent" />}
           </div>
           <div className="flex gap-0.5 justify-end items-end mt-auto">
             <CircleButton

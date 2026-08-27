@@ -1,6 +1,7 @@
 import { formatDistance } from 'date-fns';
 import { es, fr, ja, zhCN, zhTW } from 'date-fns/locale';
 import i18n from '@/i18n';
+import { ENGINE_DISPLAY_NAMES } from '@/lib/constants/engines';
 
 export function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -54,13 +55,6 @@ export function formatAbsoluteDate(date: string | Date): string {
     minute: '2-digit',
   });
 }
-
-const ENGINE_DISPLAY_NAMES: Record<string, string> = {
-  qwen: 'Qwen',
-  luxtts: 'LuxTTS',
-  chatterbox: 'Chatterbox',
-  chatterbox_turbo: 'Chatterbox Turbo',
-};
 
 export function formatEngineName(engine?: string, modelSize?: string): string {
   const name = ENGINE_DISPLAY_NAMES[engine ?? 'qwen'] ?? engine ?? 'Qwen';

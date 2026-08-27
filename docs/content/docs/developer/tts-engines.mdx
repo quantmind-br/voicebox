@@ -22,6 +22,22 @@ The backend is split into layers:
 
 New engines only need to touch `backends/` and `models.py` on the backend side — the route and service layers use a model config registry that handles dispatch automatically.
 
+### API-backed engines
+
+Remote engines such as Gemini use the same `TTSBackend` generation contract but do not
+ship local weights. They therefore contribute no `ModelConfig`, never appear in model
+management, and require no download or HuggingFace cache entry. Readiness is based on
+provider credentials instead.
+
+Provider credentials and engine-specific defaults are resolved in the service or route
+layer and passed as an optional `options` dictionary. `generate_chunked()` forwards that
+dictionary to `backend.generate(..., options=options)` without storing mutable options on
+the singleton backend. This keeps concurrent requests isolated.
+
+An HTTP-only integration using dependencies already in Voicebox still needs PyInstaller
+hidden imports for its dynamically imported backend and client modules, but no
+`--collect-all`, package metadata, runtime data files, or native-path setup.
+
 ## Phase 0: Dependency Research
 
 **This phase is mandatory.** Clone the model library and its key dependencies into a temporary directory and inspect them before writing any integration code. The goal is to produce a dependency audit that identifies every PyInstaller-incompatible pattern, every native data file, and every upstream bug you'll need to work around.

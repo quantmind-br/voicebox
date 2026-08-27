@@ -1,0 +1,98 @@
+---
+title: "API Providers"
+description: "Use Gemini for remote transcription and text-to-speech"
+---
+
+## Overview
+
+Voicebox can use Google Gemini as a remote provider for both speech-to-text and text-to-speech. This is optional: local Whisper and every local TTS engine continue to work without an API key.
+
+Gemini is useful when you want:
+
+- Transcription without downloading or loading a local Whisper model
+- Smart transcript cleanup in the same API pass
+- Speaker labels or word timestamps
+- Thirty preset TTS voices with prompt-driven tone, pace, and accent
+- Remote generation on machines without suitable local acceleration
+
+## Configure a key
+
+Open **Settings → Providers** and paste a Gemini API key. Voicebox stores it in the local SQLite database and never returns the raw key to clients after saving it.
+
+For server deployments, set the environment variable instead:
+
+```bash
+export GEMINI_API_KEY="your-key"
+```
+
+`GEMINI_API_KEY` takes precedence over the stored key. When the environment variable is active, the key controls are disabled so the UI does not imply that editing SQLite would change the credential in use.
+
+Use **Test** to validate the key against Gemini's model-list endpoint without spending generation tokens.
+
+## Gemini transcription
+
+Under **Settings → Captures**, choose **Gemini API** as the transcription engine. The Whisper model selector becomes inactive because Gemini has no local model download.
+
+Provider transcription defaults live under **Settings → Providers**:
+
+- **Model** — `gemini-3.5-transcribe`
+- **Verbatim mode** — faithful transcript with optional diarization and timestamps
+- **Smart mode** — polished transcript with cleanup built in
+- **Language hints** — comma-separated BCP-47 codes such as `en-US` and `pt-BR`
+- **Custom vocabulary** — one term per line
+
+Smart mode already performs refinement, so Voicebox disables the automatic local LLM refinement controls. Manual refinement remains available on saved captures.
+
+<Callout type="info">
+  Speaker diarization and timestamps are Verbatim-only. Selecting Smart turns both off.
+</Callout>
+
+## Gemini text-to-speech
+
+Create a voice profile, choose **Built-in voice**, then select **Gemini TTS**. Voicebox exposes all thirty Gemini voices, including their descriptive styles such as Bright, Firm, Warm, and Informative.
+
+Gemini automatically detects the text language; its TTS API has no language parameter. The generation language selector therefore exposes only **Auto-detect** for Gemini profiles.
+
+Style is controlled with natural language. Set a default under **Settings → Providers**, or expand the generation instruction field for a one-off override:
+
+```text
+Read warmly, with a relaxed pace and a subtle Brazilian accent
+```
+
+Per-generation instructions take precedence over the provider default.
+
+## Privacy and costs
+
+Audio and text sent to Gemini leave the local machine and are processed by Google under the terms of the Gemini API account associated with the key. Usage can incur provider charges and quota limits.
+
+Voicebox sends only the material required for the requested operation:
+
+- Transcription sends the selected audio and transcription configuration.
+- Speech generation sends the text, selected voice, and optional style prompt.
+
+Local engines remain the appropriate choice when data must not leave the machine.
+
+## Troubleshooting
+
+| Symptom | Action |
+|---------|--------|
+| "Configure your Gemini API key" | Add a stored key or set `GEMINI_API_KEY` |
+| Test reports an invalid key | Create or rotate the key in Google AI Studio |
+| Quota error | Review Gemini API quota and billing for the project |
+| Diarization controls disabled | Switch transcription mode from Smart to Verbatim |
+| Local refinement disabled | Gemini Smart mode is already replacing that automatic pass |
+| Voice generation fails with no audio | Try a shorter prompt and review the provider error message |
+
+## Related
+
+<Cards>
+  <Card title="Captures" href="/overview/captures">
+    Record, transcribe, refine, and manage captured audio
+  </Card>
+  <Card title="Preset Voices" href="/overview/preset-voices">
+    Create profiles from built-in voices
+  </Card>
+  <Card title="Transcription Internals" href="/developer/transcription">
+    STT registry, Gemini modes, payloads, and output formatting
+  </Card>
+</Cards>

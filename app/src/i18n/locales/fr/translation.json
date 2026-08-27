@@ -744,7 +744,8 @@
       "gpu": "GPU",
       "logs": "Journaux",
       "changelog": "Notes de version",
-      "about": "À propos"
+      "about": "À propos",
+      "providers": "Providers"
     },
     "language": {
       "label": "Langue",
@@ -760,8 +761,13 @@
       }
     },
     "general": {
-      "docs": { "title": "Lire la documentation" },
-      "discord": { "title": "Rejoindre le Discord", "subtitle": "Obtenez de l'aide et partagez des voix" },
+      "docs": {
+        "title": "Lire la documentation"
+      },
+      "discord": {
+        "title": "Rejoindre le Discord",
+        "subtitle": "Obtenez de l'aide et partagez des voix"
+      },
       "serverUrl": {
         "title": "URL du serveur",
         "description": "L'adresse de votre serveur Voicebox.",
@@ -945,6 +951,13 @@
         "archive": {
           "title": "Archiver l'audio",
           "description": "Conservez l'enregistrement original avec chaque transcription."
+        },
+        "engine": {
+          "title": "Transcription engine",
+          "description": "Use local Whisper or the Gemini API.",
+          "whisper": "Whisper (local)",
+          "gemini": "Gemini API",
+          "configure": "Configure a Gemini API key in Providers."
         }
       },
       "refinement": {
@@ -977,7 +990,8 @@
         "preserveTechnical": {
           "title": "Préserver les termes techniques",
           "description": "Gardez les identifiants de code, les noms de commandes et les acronymes exactement comme prononcés. Activez quand vous dictez dans une invite de code."
-        }
+        },
+        "smartNote": "Gemini Smart mode already refines the transcript, so local refinement is disabled."
       },
       "playback": {
         "title": "Lecture",
@@ -1149,6 +1163,50 @@
       "createdBy": "Créé par",
       "buyCoffee": "Offrez-moi un café",
       "license": "Sous licence <link>MIT</link>"
+    },
+    "providers": {
+      "gemini": {
+        "title": "Gemini API",
+        "description": "Configure remote transcription and speech generation through Google Gemini."
+      },
+      "key": {
+        "title": "API key",
+        "stored": "Stored key ending in {{hint}}",
+        "missing": "No Gemini API key configured.",
+        "envManaged": "Managed by the GEMINI_API_KEY environment variable.",
+        "placeholder": "Paste Gemini API key",
+        "save": "Save",
+        "remove": "Remove",
+        "test": "Test",
+        "testSuccess": "Gemini connection verified",
+        "testFailed": "Gemini connection failed",
+        "saveFailed": "Échec de l'enregistrement de la clé API"
+      },
+      "transcription": {
+        "title": "Transcription",
+        "description": "Gemini 3.5 transcription defaults.",
+        "model": "Model",
+        "mode": {
+          "title": "Mode",
+          "verbatim": "Faithful transcript with optional speaker labels and timestamps.",
+          "smart": "Polished transcript; replaces Voicebox's local refinement pass.",
+          "verbatimLabel": "Verbatim",
+          "smartLabel": "Smart"
+        },
+        "diarization": "Speaker diarization",
+        "timestamps": "Word timestamps",
+        "languages": "Language hints (BCP-47)",
+        "vocabulary": "Custom vocabulary",
+        "vocabularyPlaceholder": "One term per line (best under 100 terms)"
+      },
+      "speech": {
+        "title": "Speech",
+        "description": "Gemini TTS model and default prompt-driven style.",
+        "model": "Model",
+        "style": "Default style prompt",
+        "stylePlaceholder": "For example: Read warmly, with a relaxed pace"
+      },
+      "privacy": "Audio and text sent through Gemini are processed by Google under your Gemini API account terms."
     }
   },
   "models": {

@@ -104,6 +104,22 @@ async def list_preset_voices(engine: str):
                 for speaker_id, display_name, gender, lang, _desc in QWEN_CUSTOM_VOICES
             ],
         }
+    if engine == "gemini":
+        from ..backends.gemini_tts_backend import GEMINI_TTS_VOICES
+
+        return {
+            "engine": engine,
+            "voices": [
+                {
+                    "voice_id": voice_id,
+                    "name": display_name,
+                    "gender": gender,
+                    "language": language,
+                    "description": description,
+                }
+                for voice_id, display_name, gender, language, description in GEMINI_TTS_VOICES
+            ],
+        }
     return {"engine": engine, "voices": []}
 
 @router.get("/profiles/{profile_id}", response_model=models.VoiceProfileResponse)
@@ -186,7 +202,7 @@ async def add_profile_sample(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process audio file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process audio file: {e!s}")
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

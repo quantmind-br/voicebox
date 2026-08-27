@@ -744,7 +744,8 @@
       "gpu": "GPU",
       "logs": "Registros",
       "changelog": "Cambios",
-      "about": "Acerca de"
+      "about": "Acerca de",
+      "providers": "Providers"
     },
     "language": {
       "label": "Idioma",
@@ -950,6 +951,13 @@
         "archive": {
           "title": "Archivar audio",
           "description": "Conserva la grabación original junto a cada transcripción."
+        },
+        "engine": {
+          "title": "Transcription engine",
+          "description": "Use local Whisper or the Gemini API.",
+          "whisper": "Whisper (local)",
+          "gemini": "Gemini API",
+          "configure": "Configure a Gemini API key in Providers."
         }
       },
       "refinement": {
@@ -982,7 +990,8 @@
         "preserveTechnical": {
           "title": "Conservar términos técnicos",
           "description": "Mantén los identificadores de código, nombres de comandos y siglas exactamente como se dicen. Actívalo cuando dictes en un prompt de código."
-        }
+        },
+        "smartNote": "Gemini Smart mode already refines the transcript, so local refinement is disabled."
       },
       "playback": {
         "title": "Reproducción",
@@ -1182,6 +1191,50 @@
       "createdBy": "Creado por",
       "buyCoffee": "Invítame a un café",
       "license": "Con licencia <link>MIT</link>"
+    },
+    "providers": {
+      "gemini": {
+        "title": "Gemini API",
+        "description": "Configure remote transcription and speech generation through Google Gemini."
+      },
+      "key": {
+        "title": "API key",
+        "stored": "Stored key ending in {{hint}}",
+        "missing": "No Gemini API key configured.",
+        "envManaged": "Managed by the GEMINI_API_KEY environment variable.",
+        "placeholder": "Paste Gemini API key",
+        "save": "Save",
+        "remove": "Remove",
+        "test": "Test",
+        "testSuccess": "Gemini connection verified",
+        "testFailed": "Gemini connection failed",
+        "saveFailed": "No se pudo guardar la clave de API"
+      },
+      "transcription": {
+        "title": "Transcription",
+        "description": "Gemini 3.5 transcription defaults.",
+        "model": "Model",
+        "mode": {
+          "title": "Mode",
+          "verbatim": "Faithful transcript with optional speaker labels and timestamps.",
+          "smart": "Polished transcript; replaces Voicebox's local refinement pass.",
+          "verbatimLabel": "Verbatim",
+          "smartLabel": "Smart"
+        },
+        "diarization": "Speaker diarization",
+        "timestamps": "Word timestamps",
+        "languages": "Language hints (BCP-47)",
+        "vocabulary": "Custom vocabulary",
+        "vocabularyPlaceholder": "One term per line (best under 100 terms)"
+      },
+      "speech": {
+        "title": "Speech",
+        "description": "Gemini TTS model and default prompt-driven style.",
+        "model": "Model",
+        "style": "Default style prompt",
+        "stylePlaceholder": "For example: Read warmly, with a relaxed pace"
+      },
+      "privacy": "Audio and text sent through Gemini are processed by Google under your Gemini API account terms."
     }
   },
   "models": {

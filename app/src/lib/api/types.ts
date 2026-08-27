@@ -44,8 +44,9 @@ export interface PersonalityTextResponse {
 export interface PresetVoice {
   voice_id: string;
   name: string;
-  gender: 'male' | 'female';
+  gender: 'male' | 'female' | 'neutral';
   language: string;
+  description?: string;
 }
 
 export interface ProfileSampleCreate {
@@ -79,7 +80,8 @@ export interface GenerationRequest {
     | 'chatterbox'
     | 'chatterbox_turbo'
     | 'tada'
-    | 'kokoro';
+    | 'kokoro'
+    | 'gemini';
   instruct?: string;
   /** When true and the profile has a personality prompt, input text is rewritten in-character before TTS. */
   personality?: boolean;
@@ -199,10 +201,12 @@ export interface CaptureRefineRequest {
 export interface CaptureRetranscribeRequest {
   model?: WhisperModelSize;
   language?: LanguageCode;
+  engine?: 'whisper' | 'gemini';
 }
 
 export interface CaptureSettings {
   stt_model: WhisperModelSize;
+  stt_engine: 'whisper' | 'gemini';
   language: string;
   auto_refine: boolean;
   llm_model: Qwen3ModelSize;
@@ -239,7 +243,7 @@ export interface ModelReadiness {
  *  with TCC permission state into the full checklist used by useDictationReadiness. */
 export interface CaptureReadinessResponse {
   stt: ModelReadiness;
-  llm: ModelReadiness;
+  llm?: ModelReadiness | null;
 }
 
 export interface GenerationSettings {
@@ -251,9 +255,41 @@ export interface GenerationSettings {
 
 export type GenerationSettingsUpdate = Partial<GenerationSettings>;
 
+export interface ProviderSettings {
+  gemini_key_present: boolean;
+  gemini_key_source: 'env' | 'stored' | null;
+  gemini_key_hint: string | null;
+  gemini_stt_model: string;
+  gemini_stt_mode: 'verbatim' | 'smart';
+  gemini_stt_diarization: boolean;
+  gemini_stt_timestamps: boolean;
+  gemini_stt_language_codes: string[];
+  gemini_stt_custom_vocabulary: string[];
+  gemini_tts_model: string;
+  gemini_tts_style_prompt: string | null;
+}
+
+export interface ProviderSettingsUpdate {
+  gemini_api_key?: string | null;
+  gemini_stt_model?: string;
+  gemini_stt_mode?: 'verbatim' | 'smart';
+  gemini_stt_diarization?: boolean;
+  gemini_stt_timestamps?: boolean;
+  gemini_stt_language_codes?: string[];
+  gemini_stt_custom_vocabulary?: string[];
+  gemini_tts_model?: string;
+  gemini_tts_style_prompt?: string | null;
+}
+
+export interface ProviderVerifyResponse {
+  ok: boolean;
+  detail: string;
+}
+
 export interface TranscriptionRequest {
   language?: LanguageCode;
   model?: WhisperModelSize;
+  engine?: 'whisper' | 'gemini';
 }
 
 export interface TranscriptionResponse {

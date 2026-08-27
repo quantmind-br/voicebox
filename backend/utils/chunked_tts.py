@@ -214,6 +214,7 @@ async def generate_chunked(
     crossfade_ms: int = 50,
     trim_fn=None,
     runaway_detector=None,
+    options: dict | None = None,
 ) -> Tuple[np.ndarray, int]:
     """Generate audio with automatic chunking for long text.
 
@@ -255,13 +256,11 @@ async def generate_chunked(
         chunk_seed: int | None,
         retry_depth: int = 0,
     ) -> tuple[np.ndarray, int]:
-        chunk_audio, chunk_sr = await backend.generate(
-            chunk_text,
-            voice_prompt,
-            language,
-            chunk_seed,
-            instruct,
-        )
+        args = (chunk_text, voice_prompt, language, chunk_seed, instruct)
+        if options is None:
+            chunk_audio, chunk_sr = await backend.generate(*args)
+        else:
+            chunk_audio, chunk_sr = await backend.generate(*args, options=options)
 
         if runaway_detector is not None and runaway_detector(chunk_audio, chunk_sr):
             if retry_depth >= MAX_RUNAWAY_RETRIES or len(chunk_text) <= MIN_RUNAWAY_RETRY_CHARS:

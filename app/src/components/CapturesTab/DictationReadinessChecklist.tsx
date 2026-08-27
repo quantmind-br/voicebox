@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import {
   Accessibility,
   CheckCircle2,
@@ -201,9 +202,7 @@ export function DictationReadinessChecklist({
           <h2 className="text-base font-semibold text-foreground">
             {t('captures.readiness.title')}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            {t('captures.readiness.subheading')}
-          </p>
+          <p className="text-xs text-muted-foreground">{t('captures.readiness.subheading')}</p>
         </div>
       )}
 
@@ -219,7 +218,18 @@ export function DictationReadinessChecklist({
                 : t('captures.readiness.stt.missing')
           }
           ready={readiness.stt.ready}
-          action={modelDownloadButton('stt', readiness.stt.model_name, readiness.stt.ready)}
+          action={
+            readiness.stt.size === 'api' && !readiness.stt.ready ? (
+              <Button size="sm" asChild className="gap-1.5">
+                <Link to="/settings/providers">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {t('captures.actions.configure')}
+                </Link>
+              </Button>
+            ) : (
+              modelDownloadButton('stt', readiness.stt.model_name, readiness.stt.ready)
+            )
+          }
         />
       )}
 

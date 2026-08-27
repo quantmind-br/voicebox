@@ -48,6 +48,7 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
+        "decorations": false,
         "devtools": true,
         "userAgent": null,
         "titleBarStyle": "Overlay"

@@ -744,7 +744,8 @@
       "gpu": "GPU",
       "logs": "로그",
       "changelog": "변경 내역",
-      "about": "정보"
+      "about": "정보",
+      "providers": "Providers"
     },
     "language": {
       "label": "언어",
@@ -760,8 +761,13 @@
       }
     },
     "general": {
-      "docs": { "title": "문서 읽기" },
-      "discord": { "title": "Discord 참여하기", "subtitle": "도움말 & 음성 공유" },
+      "docs": {
+        "title": "문서 읽기"
+      },
+      "discord": {
+        "title": "Discord 참여하기",
+        "subtitle": "도움말 & 음성 공유"
+      },
       "serverUrl": {
         "title": "서버 URL",
         "description": "voicebox 백엔드 서버 주소입니다.",
@@ -945,6 +951,13 @@
         "archive": {
           "title": "오디오 보관",
           "description": "모든 대본과 함께 원본 녹음을 보관합니다."
+        },
+        "engine": {
+          "title": "Transcription engine",
+          "description": "Use local Whisper or the Gemini API.",
+          "whisper": "Whisper (local)",
+          "gemini": "Gemini API",
+          "configure": "Configure a Gemini API key in Providers."
         }
       },
       "refinement": {
@@ -977,7 +990,8 @@
         "preserveTechnical": {
           "title": "기술 용어 보존",
           "description": "코드 식별자, 명령 이름, 약어를 말한 그대로 유지합니다. 코드 프롬프트에 받아쓰기할 때 켜세요."
-        }
+        },
+        "smartNote": "Gemini Smart mode already refines the transcript, so local refinement is disabled."
       },
       "playback": {
         "title": "재생",
@@ -1177,6 +1191,50 @@
       "createdBy": "만든 사람",
       "buyCoffee": "커피 한 잔 사주기",
       "license": "<link>MIT</link> 라이선스"
+    },
+    "providers": {
+      "gemini": {
+        "title": "Gemini API",
+        "description": "Configure remote transcription and speech generation through Google Gemini."
+      },
+      "key": {
+        "title": "API key",
+        "stored": "Stored key ending in {{hint}}",
+        "missing": "No Gemini API key configured.",
+        "envManaged": "Managed by the GEMINI_API_KEY environment variable.",
+        "placeholder": "Paste Gemini API key",
+        "save": "Save",
+        "remove": "Remove",
+        "test": "Test",
+        "testSuccess": "Gemini connection verified",
+        "testFailed": "Gemini connection failed",
+        "saveFailed": "API 키를 저장하지 못했습니다"
+      },
+      "transcription": {
+        "title": "Transcription",
+        "description": "Gemini 3.5 transcription defaults.",
+        "model": "Model",
+        "mode": {
+          "title": "Mode",
+          "verbatim": "Faithful transcript with optional speaker labels and timestamps.",
+          "smart": "Polished transcript; replaces Voicebox's local refinement pass.",
+          "verbatimLabel": "Verbatim",
+          "smartLabel": "Smart"
+        },
+        "diarization": "Speaker diarization",
+        "timestamps": "Word timestamps",
+        "languages": "Language hints (BCP-47)",
+        "vocabulary": "Custom vocabulary",
+        "vocabularyPlaceholder": "One term per line (best under 100 terms)"
+      },
+      "speech": {
+        "title": "Speech",
+        "description": "Gemini TTS model and default prompt-driven style.",
+        "model": "Model",
+        "style": "Default style prompt",
+        "stylePlaceholder": "For example: Read warmly, with a relaxed pace"
+      },
+      "privacy": "Audio and text sent through Gemini are processed by Google under your Gemini API account terms."
     }
   },
   "models": {

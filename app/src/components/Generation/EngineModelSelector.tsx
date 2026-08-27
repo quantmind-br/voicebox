@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { UseFormReturn } from 'react-hook-form';
+import { Badge } from '@/components/ui/badge';
 import { FormControl } from '@/components/ui/form';
 import {
   Select,
@@ -9,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { VoiceProfileResponse } from '@/lib/api/types';
+import { CLONING_ENGINES } from '@/lib/constants/engines';
 import { getLanguageOptionsForEngine } from '@/lib/constants/languages';
 import type { GenerationFormValues } from '@/lib/hooks/useGenerationForm';
 
@@ -27,6 +29,7 @@ const ENGINE_OPTIONS = [
   { value: 'tada:1B', label: 'TADA 1B', engine: 'tada' },
   { value: 'tada:3B', label: 'TADA 3B Multilingual', engine: 'tada' },
   { value: 'kokoro', label: 'Kokoro 82M', engine: 'kokoro' },
+  { value: 'gemini', label: 'Gemini TTS', engine: 'gemini' },
 ] as const;
 
 const ENGINE_DESCRIPTIONS: Record<string, string> = {
@@ -37,13 +40,11 @@ const ENGINE_DESCRIPTIONS: Record<string, string> = {
   chatterbox_turbo: 'English, [laugh] [cough] tags',
   tada: 'HumeAI, 700s+ coherent audio',
   kokoro: '82M params, CPU realtime, 8 langs',
+  gemini: '30 voices, prompt-driven style, API',
 };
 
 /** Engines that only support English and should force language to 'en' on select. */
 const ENGLISH_ONLY_ENGINES = new Set(['luxtts', 'chatterbox_turbo']);
-
-/** Engines that support cloned (reference audio) profiles. */
-const CLONING_ENGINES = new Set(['qwen', 'luxtts', 'chatterbox', 'chatterbox_turbo', 'tada']);
 
 function getAvailableOptions(selectedProfile?: VoiceProfileResponse | null) {
   if (!selectedProfile) return ENGINE_OPTIONS;
@@ -142,7 +143,10 @@ export function EngineModelSelector({ form, compact, selectedProfile }: EngineMo
       <SelectContent side={compact ? 'top' : undefined}>
         {availableOptions.map((opt) => (
           <SelectItem key={opt.value} value={opt.value} className={itemClass}>
-            {opt.label}
+            <span className="flex items-center gap-2">
+              {opt.label}
+              {opt.engine === 'gemini' ? <Badge variant="secondary">API</Badge> : null}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>
@@ -165,6 +169,6 @@ export function isProfileCompatibleWithEngine(
 ): boolean {
   const voiceType = profile.voice_type || 'cloned';
   if (voiceType === 'preset') return profile.preset_engine === engine;
-  if (voiceType === 'cloned') return CLONING_ENGINES.has(engine);
+  if (voiceType === 'cloned') return CLONING_ENGINES[engine] === true;
   return true; // designed — future
 }

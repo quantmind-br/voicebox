@@ -16,6 +16,15 @@
   device nodes at startup. Native Linux setup now picks ROCm wheels for AMD GPUs
   and CUDA wheels for NVIDIA GPUs before installing backend dependencies.
 
+### Gemini API providers
+
+- **Gemini transcription and text-to-speech are now first-class engines.** A new Settings → Providers page stores a Gemini key locally or uses `GEMINI_API_KEY`, validates it without spending generation tokens, and configures `gemini-3.5-transcribe` plus three Gemini TTS preview models.
+- **Remote transcription supports Verbatim and Smart modes.** Verbatim can render speaker turns and timestamps from word annotations; Smart produces a polished transcript and replaces the automatic local LLM refinement pass instead of stacking two cleanup stages. BCP-47 language hints, custom vocabulary, large-file resumable uploads, and non-native audio transcoding are included.
+- **Thirty Gemini preset voices ship in the profile flow.** Voices expose Google's descriptive styles, use automatic language detection, and accept natural-language style instructions per generation or as a provider default. Gemini generation is API-backed, so it skips model downloads and HuggingFace readiness checks.
+- **The STT backend is now a registry rather than a Whisper singleton.** HTTP capture/transcribe routes, retranscription, readiness checks, and the `voicebox.transcribe` MCP tool all resolve either Whisper or Gemini through the same backend contract.
+- **Provider credentials stay out of responses.** SQLite stores only the local secret, environment configuration wins when present, status responses reveal only source and a four-character hint, and Smart/diarization/timestamp incompatibilities are enforced before requests reach Google.
+- **Documentation and test coverage.** Added API-provider guidance, updated the TTS/STT architecture docs, and covered REST retries/errors, payload shapes, style precedence, language mapping, speaker-turn rendering, key redaction, environment precedence, and provider-setting invariants.
+
 ## [0.5.0] - 2026-04-22
 
 **The Capture release.** Voicebox stops being just a voice-cloning studio and becomes a full AI voice studio. Hold a key anywhere on your machine, speak, release — the transcript lands in the focused text field. Flip the primitive around and any MCP-aware agent — Claude Code, Cursor, Spacebot — speaks back through an on-screen pill in one of your cloned voices. A local LLM sits between the two, so transcripts come out clean and voice profiles can carry a personality that reshapes what the agent says before it gets spoken.

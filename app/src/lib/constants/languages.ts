@@ -94,6 +94,8 @@ export const ENGINE_LANGUAGES: Record<string, readonly GenerationLanguageCode[]>
   tada: ['en', 'ar', 'zh', 'de', 'es', 'fr', 'it', 'ja', 'pl', 'pt'],
   kokoro: ['en', 'es', 'fr', 'hi', 'it', 'pt', 'ja', 'zh'],
   qwen_custom_voice: ['auto', 'zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it'],
+  // Gemini TTS auto-detects language and exposes no language parameter.
+  gemini: ['auto'],
 } as const;
 
 /** Helper: get language options for a given engine. */

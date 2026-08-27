@@ -5,7 +5,6 @@ import logging
 import shutil
 import uuid
 from datetime import datetime
-from pathlib import Path
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -72,6 +71,14 @@ def _get_preset_voice_ids(engine: str) -> set[str]:
         from ..backends.qwen_custom_voice_backend import QWEN_CUSTOM_VOICES
 
         return {voice_id for voice_id, _name, _gender, _lang, _desc in QWEN_CUSTOM_VOICES}
+
+    if engine == "gemini":
+        from ..backends.gemini_tts_backend import GEMINI_TTS_VOICES
+
+        return {
+            voice_id
+            for voice_id, _name, _gender, _language, _description in GEMINI_TTS_VOICES
+        }
 
     return set()
 

@@ -1,9 +1,9 @@
 """ORM model definitions for the voicebox SQLite database."""
 
-from datetime import datetime
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
 
 from ..utils.capture_chords import (
@@ -196,6 +196,8 @@ class CaptureSettings(Base):
 
     id = Column(Integer, primary_key=True, default=1)
     stt_model = Column(String, nullable=False, default="turbo")
+    # Gemini uses an API model id; keep stt_model Whisper-only for its size enum.
+    stt_engine = Column(String, nullable=False, default="whisper")
     language = Column(String, nullable=False, default="auto")
     auto_refine = Column(Boolean, nullable=False, default=True)
     llm_model = Column(String, nullable=False, default="0.6B")
@@ -253,6 +255,26 @@ class CloudSettings(Base):
     device_name = Column(String, nullable=True)
     account_user_id = Column(String, nullable=True)
     connected_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ProviderSettings(Base):
+    """Singleton row for remote API-provider credentials and defaults."""
+
+    __tablename__ = "provider_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    gemini_api_key = Column(String, nullable=True)
+    gemini_stt_model = Column(String, nullable=False, default="gemini-3.5-transcribe")
+    gemini_stt_mode = Column(String, nullable=False, default="verbatim")
+    gemini_stt_diarization = Column(Boolean, nullable=False, default=False)
+    gemini_stt_timestamps = Column(Boolean, nullable=False, default=False)
+    gemini_stt_language_codes = Column(Text, nullable=False, default="[]")
+    gemini_stt_custom_vocabulary = Column(Text, nullable=False, default="[]")
+    gemini_tts_model = Column(
+        String, nullable=False, default="gemini-3.1-flash-tts-preview"
+    )
+    gemini_tts_style_prompt = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

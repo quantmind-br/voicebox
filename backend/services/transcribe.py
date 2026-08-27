@@ -1,22 +1,13 @@
-"""
-STT (Speech-to-Text) module - delegates to backend abstraction layer.
-"""
+"""STT service — delegates to the selected backend abstraction."""
 
-from typing import Optional
-from ..backends import get_stt_backend, STTBackend
+from ..backends import STTBackend, get_stt_backend_for_engine, unload_stt_backends
 
 
-def get_whisper_model() -> STTBackend:
-    """
-    Get STT backend instance (MLX or PyTorch based on platform).
-    
-    Returns:
-        STT backend instance
-    """
-    return get_stt_backend()
+def get_stt_model(engine: str = "whisper") -> STTBackend:
+    """Return the singleton backend for an STT engine."""
+    return get_stt_backend_for_engine(engine)
 
 
-def unload_whisper_model():
-    """Unload Whisper model to free memory."""
-    backend = get_stt_backend()
-    backend.unload_model()
+def unload_stt_models() -> None:
+    """Unload every instantiated STT backend."""
+    unload_stt_backends()

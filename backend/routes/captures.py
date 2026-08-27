@@ -10,8 +10,7 @@ from .. import config, models
 from ..backends import get_llm_model_configs, get_stt_model_configs
 from ..backends.base import is_model_cached
 from ..database import Capture as DBCapture, get_db
-from ..services import captures as captures_service
-from ..services import settings as settings_service
+from ..services import captures as captures_service, providers as providers_service, settings as settings_service
 from ..services.refinement import RefinementFlags
 
 logger = logging.getLogger(__name__)
@@ -27,6 +26,7 @@ async def create_capture_endpoint(
     source: str = Form("file"),
     language: str | None = Form(None),
     stt_model: str | None = Form(None),
+    engine: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload audio, run STT, persist the capture."""
@@ -39,7 +39,16 @@ async def create_capture_endpoint(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     saved = settings_service.get_capture_settings(db)
-    resolved_stt = stt_model or saved.stt_model
+    selected_engine = engine or saved.stt_engine
+    if selected_engine not in {"whisper", "gemini"}:
+        raise HTTPException(status_code=400, detail=f"Unknown STT engine: {selected_engine}")
+    options = providers_service.gemini_stt_options(db) if selected_engine == "gemini" else None
+    if selected_engine == "gemini" and not (options or {}).get("api_key"):
+        raise HTTPException(
+            status_code=400,
+            detail="Configure your Gemini API key in Settings > Providers",
+        )
+    resolved_stt = str((options or {})["model"]) if selected_engine == "gemini" else stt_model or saved.stt_model
     if language is None:
         resolved_language = None if saved.language == "auto" else saved.language
     else:
@@ -52,6 +61,8 @@ async def create_capture_endpoint(
             source=source,
             language=resolved_language,
             stt_model=resolved_stt,
+            engine=selected_engine,
+            options=options,
             db=db,
         )
     except ValueError as e:
@@ -62,7 +73,8 @@ async def create_capture_endpoint(
 
     return models.CaptureCreateResponse(
         **capture.model_dump(),
-        auto_refine=bool(saved.auto_refine),
+        auto_refine=bool(saved.auto_refine)
+        and not (selected_engine == "gemini" and (options or {}).get("mode") == "smart"),
         allow_auto_paste=bool(saved.allow_auto_paste),
     )
 
@@ -156,48 +168,63 @@ async def refine_capture_endpoint(
 
 @router.get("/capture/readiness", response_model=models.CaptureReadinessResponse)
 async def capture_readiness_endpoint(db: Session = Depends(get_db)):
-    """Whether the STT and LLM models the user has selected are downloaded.
+    """Whether the selected STT and, when needed, refinement LLM are ready.
 
-    The frontend gates the global hotkey on this — pressing the chord with
-    a missing model would otherwise produce a stuck "transcribing" pill that
-    waits forever for a download to finish. Checks on-disk cache, not RAM
-    load, so the answer survives backend restarts.
+    Gemini Smart mode replaces local refinement, so it intentionally returns
+    no LLM gate. Other modes check the on-disk cache rather than RAM state so
+    readiness survives backend restarts.
     """
     saved = settings_service.get_capture_settings(db)
+    gemini_options = None
 
-    stt_cfg = next(
-        (c for c in get_stt_model_configs() if c.model_size == saved.stt_model),
-        None,
-    )
-    llm_cfg = next(
-        (c for c in get_llm_model_configs() if c.model_size == saved.llm_model),
-        None,
-    )
-
-    if stt_cfg is None or llm_cfg is None:
-        # Should be impossible — both fields are pattern-validated against
-        # known sizes — but bail loudly rather than return half a response.
-        raise HTTPException(
-            status_code=500,
-            detail=f"No model config for stt={saved.stt_model} or llm={saved.llm_model}",
+    if saved.stt_engine == "gemini":
+        gemini_options = providers_service.gemini_stt_options(db)
+        stt_readiness = models.ModelReadiness(
+            ready=bool(gemini_options.get("api_key")),
+            model_name="gemini",
+            display_name=f"Gemini {gemini_options['model']}",
+            size="api",
+            size_mb=None,
         )
-
-    return models.CaptureReadinessResponse(
-        stt=models.ModelReadiness(
+    else:
+        stt_cfg = next(
+            (c for c in get_stt_model_configs() if c.model_size == saved.stt_model),
+            None,
+        )
+        if stt_cfg is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"No model config for stt={saved.stt_model}",
+            )
+        stt_readiness = models.ModelReadiness(
             ready=is_model_cached(stt_cfg.hf_repo_id),
             model_name=stt_cfg.model_name,
             display_name=stt_cfg.display_name,
             size=stt_cfg.model_size,
             size_mb=stt_cfg.size_mb or None,
-        ),
-        llm=models.ModelReadiness(
+        )
+
+    smart_gemini = bool(gemini_options and gemini_options.get("mode") == "smart")
+    llm_readiness = None
+    if not smart_gemini:
+        llm_cfg = next(
+            (c for c in get_llm_model_configs() if c.model_size == saved.llm_model),
+            None,
+        )
+        if llm_cfg is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"No model config for llm={saved.llm_model}",
+            )
+        llm_readiness = models.ModelReadiness(
             ready=is_model_cached(llm_cfg.hf_repo_id),
             model_name=llm_cfg.model_name,
             display_name=llm_cfg.display_name,
             size=llm_cfg.model_size,
             size_mb=llm_cfg.size_mb or None,
-        ),
-    )
+        )
+
+    return models.CaptureReadinessResponse(stt=stt_readiness, llm=llm_readiness)
 
 
 @router.post("/captures/{capture_id}/retranscribe", response_model=models.CaptureResponse)
@@ -207,7 +234,16 @@ async def retranscribe_capture_endpoint(
     db: Session = Depends(get_db),
 ):
     saved = settings_service.get_capture_settings(db)
-    resolved_stt = request.model or saved.stt_model
+    selected_engine = request.engine or saved.stt_engine
+    if selected_engine not in {"whisper", "gemini"}:
+        raise HTTPException(status_code=400, detail=f"Unknown STT engine: {selected_engine}")
+    options = providers_service.gemini_stt_options(db) if selected_engine == "gemini" else None
+    if selected_engine == "gemini" and not (options or {}).get("api_key"):
+        raise HTTPException(
+            status_code=400,
+            detail="Configure your Gemini API key in Settings > Providers",
+        )
+    resolved_stt = str((options or {})["model"]) if selected_engine == "gemini" else request.model or saved.stt_model
     if request.language is None:
         resolved_language = None if saved.language == "auto" else saved.language
     else:
@@ -218,6 +254,8 @@ async def retranscribe_capture_endpoint(
             capture_id=capture_id,
             stt_model=resolved_stt,
             language=resolved_language,
+            engine=selected_engine,
+            options=options,
             db=db,
         )
     except FileNotFoundError as e:

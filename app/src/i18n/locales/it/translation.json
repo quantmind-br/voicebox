@@ -379,7 +379,7 @@
       "play": "Riproduci campione",
       "pause": "Pausa campione",
       "stop": "Interrompi",
-            "stopAria": "Interrompi riproduzione",
+      "stopAria": "Interrompi riproduzione",
       "position": "Posizione riproduzione campione",
       "positionValue": "{{current}} di {{total}}"
     },
@@ -744,7 +744,8 @@
       "gpu": "GPU",
       "logs": "Log",
       "changelog": "Registro modifiche",
-      "about": "Informazioni"
+      "about": "Informazioni",
+      "providers": "Providers"
     },
     "language": {
       "label": "Lingua",
@@ -950,6 +951,13 @@
         "archive": {
           "title": "Archivia audio",
           "description": "Conserva la registrazione originale insieme a ciascuna trascrizione."
+        },
+        "engine": {
+          "title": "Transcription engine",
+          "description": "Use local Whisper or the Gemini API.",
+          "whisper": "Whisper (local)",
+          "gemini": "Gemini API",
+          "configure": "Configure a Gemini API key in Providers."
         }
       },
       "refinement": {
@@ -982,7 +990,8 @@
         "preserveTechnical": {
           "title": "Preserva i termini tecnici",
           "description": "Mantieni gli identificatori di codice, i nomi dei comandi e gli acronimi esattamente come vengono pronunciati. Attiva questa opzione quando detti all'interno di un prompt di codice."
-        }
+        },
+        "smartNote": "Gemini Smart mode already refines the transcript, so local refinement is disabled."
       },
       "playback": {
         "title": "Riproduzione",
@@ -1124,7 +1133,8 @@
         "title": "Passa al backend CPU",
         "description": "Disabilita l'accelerazione GPU. Potrai scaricare nuovamente il backend GPU in un secondo momento.",
         "button": "Passa a CPU"
-      },      "remove": {
+      },
+      "remove": {
         "title": "Rimuovi il backend CUDA",
         "description": "Elimina il file binario CUDA scaricato per liberare spazio sul disco.",
         "button": "Rimuovi"
@@ -1181,6 +1191,50 @@
       "createdBy": "Creato da",
       "buyCoffee": "Offrimi un caffè",
       "license": "Rilasciato sotto licenza <link>MIT</link>"
+    },
+    "providers": {
+      "gemini": {
+        "title": "Gemini API",
+        "description": "Configure remote transcription and speech generation through Google Gemini."
+      },
+      "key": {
+        "title": "API key",
+        "stored": "Stored key ending in {{hint}}",
+        "missing": "No Gemini API key configured.",
+        "envManaged": "Managed by the GEMINI_API_KEY environment variable.",
+        "placeholder": "Paste Gemini API key",
+        "save": "Save",
+        "remove": "Remove",
+        "test": "Test",
+        "testSuccess": "Gemini connection verified",
+        "testFailed": "Gemini connection failed",
+        "saveFailed": "Impossibile salvare la chiave API"
+      },
+      "transcription": {
+        "title": "Transcription",
+        "description": "Gemini 3.5 transcription defaults.",
+        "model": "Model",
+        "mode": {
+          "title": "Mode",
+          "verbatim": "Faithful transcript with optional speaker labels and timestamps.",
+          "smart": "Polished transcript; replaces Voicebox's local refinement pass.",
+          "verbatimLabel": "Verbatim",
+          "smartLabel": "Smart"
+        },
+        "diarization": "Speaker diarization",
+        "timestamps": "Word timestamps",
+        "languages": "Language hints (BCP-47)",
+        "vocabulary": "Custom vocabulary",
+        "vocabularyPlaceholder": "One term per line (best under 100 terms)"
+      },
+      "speech": {
+        "title": "Speech",
+        "description": "Gemini TTS model and default prompt-driven style.",
+        "model": "Model",
+        "style": "Default style prompt",
+        "stylePlaceholder": "For example: Read warmly, with a relaxed pace"
+      },
+      "privacy": "Audio and text sent through Gemini are processed by Google under your Gemini API account terms."
     }
   },
   "models": {

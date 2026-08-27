@@ -151,6 +151,8 @@ class STTBackend(Protocol):
         audio_path: str,
         language: Optional[str] = None,
         model_size: Optional[str] = None,
+        *,
+        options: dict | None = None,
     ) -> str:
         """
         Transcribe audio to text.
@@ -204,10 +206,10 @@ class LLMBackend(Protocol):
 
 
 # Global backend instances
-_tts_backend: Optional[TTSBackend] = None
 _tts_backends: dict[str, TTSBackend] = {}
 _tts_backends_lock = threading.Lock()
-_stt_backend: Optional[STTBackend] = None
+_stt_backends: dict[str, STTBackend] = {}
+_stt_backends_lock = threading.Lock()
 _llm_backends: dict[str, LLMBackend] = {}
 _llm_backends_lock = threading.Lock()
 
@@ -221,6 +223,12 @@ TTS_ENGINES = {
     "chatterbox_turbo": "Chatterbox Turbo",
     "tada": "TADA",
     "kokoro": "Kokoro",
+    "gemini": "Gemini TTS",
+}
+
+STT_ENGINES = {
+    "whisper": "Whisper",
+    "gemini": "Gemini Transcription",
 }
 
 LLM_ENGINES = {
@@ -573,9 +581,9 @@ def unload_model_by_config(config: ModelConfig) -> bool:
     from ..services import tts, transcribe, llm as llm_service
 
     if config.engine == "whisper":
-        whisper_model = transcribe.get_whisper_model()
+        whisper_model = transcribe.get_stt_model()
         if whisper_model.is_loaded() and whisper_model.model_size == config.model_size:
-            transcribe.unload_whisper_model()
+            transcribe.unload_stt_models()
             return True
         return False
 
@@ -618,7 +626,7 @@ def check_model_loaded(config: ModelConfig) -> bool:
 
     try:
         if config.engine == "whisper":
-            whisper_model = transcribe.get_whisper_model()
+            whisper_model = transcribe.get_stt_model()
             return whisper_model.is_loaded() and getattr(whisper_model, "model_size", None) == config.model_size
 
         if config.engine == "qwen_llm":
@@ -648,7 +656,7 @@ def get_model_load_func(config: ModelConfig):
     from ..services import tts, transcribe, llm as llm_service
 
     if config.engine == "whisper":
-        return lambda: transcribe.get_whisper_model().load_model(config.model_size)
+        return lambda: transcribe.get_stt_model().load_model(config.model_size)
 
     if config.engine == "qwen":
         return lambda: tts.get_tts_model().load_model(config.model_size)
@@ -724,6 +732,10 @@ def get_tts_backend_for_engine(engine: str) -> TTSBackend:
             from .kokoro_backend import KokoroTTSBackend
 
             backend = KokoroTTSBackend()
+        elif engine == "gemini":
+            from .gemini_tts_backend import GeminiTTSBackend
+
+            backend = GeminiTTSBackend()
         elif engine == "qwen_custom_voice":
             from .qwen_custom_voice_backend import QwenCustomVoiceBackend
 
@@ -735,28 +747,42 @@ def get_tts_backend_for_engine(engine: str) -> TTSBackend:
         return backend
 
 
-def get_stt_backend() -> STTBackend:
-    """
-    Get or create STT backend instance based on platform.
+def get_stt_backend_for_engine(engine: str) -> STTBackend:
+    """Get or create the STT backend for an engine."""
+    if engine in _stt_backends:
+        return _stt_backends[engine]
 
-    Returns:
-        STT backend instance (MLX or PyTorch)
-    """
-    global _stt_backend
+    with _stt_backends_lock:
+        if engine in _stt_backends:
+            return _stt_backends[engine]
 
-    if _stt_backend is None:
-        backend_type = get_backend_type()
+        if engine == "whisper":
+            backend_type = get_backend_type()
+            if backend_type == "mlx":
+                from .mlx_backend import MLXSTTBackend
 
-        if backend_type == "mlx":
-            from .mlx_backend import MLXSTTBackend
+                backend = MLXSTTBackend()
+            else:
+                from .pytorch_backend import PyTorchSTTBackend
 
-            _stt_backend = MLXSTTBackend()
+                backend = PyTorchSTTBackend()
+        elif engine == "gemini":
+            from .gemini_stt_backend import GeminiSTTBackend
+
+            backend = GeminiSTTBackend()
         else:
-            from .pytorch_backend import PyTorchSTTBackend
+            raise ValueError(
+                f"Unknown STT engine: {engine}. Supported: {list(STT_ENGINES.keys())}"
+            )
 
-            _stt_backend = PyTorchSTTBackend()
+        _stt_backends[engine] = backend
+        return backend
 
-    return _stt_backend
+def unload_stt_backends() -> None:
+    """Unload all instantiated STT backends."""
+    for backend in list(_stt_backends.values()):
+        backend.unload_model()
+
 
 
 def get_llm_backend() -> LLMBackend:
@@ -794,8 +820,6 @@ def get_llm_backend_for_engine(engine: str) -> LLMBackend:
 
 def reset_backends():
     """Reset backend instances (useful for testing)."""
-    global _tts_backend, _tts_backends, _stt_backend, _llm_backends
-    _tts_backend = None
     _tts_backends.clear()
-    _stt_backend = None
+    _stt_backends.clear()
     _llm_backends.clear()

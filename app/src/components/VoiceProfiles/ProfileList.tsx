@@ -3,13 +3,11 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PRESET_ONLY_ENGINES } from '@/lib/constants/engines';
 import { useProfiles } from '@/lib/hooks/useProfiles';
 import { useUIStore } from '@/stores/uiStore';
 import { ProfileCard } from './ProfileCard';
 import { ProfileForm } from './ProfileForm';
-
-/** Engines that use preset (built-in) voices instead of cloned profiles. */
-const PRESET_ENGINES = new Set(['kokoro', 'qwen_custom_voice']);
 
 export function ProfileList() {
   const { t } = useTranslation();
@@ -55,7 +53,7 @@ export function ProfileList() {
   }
 
   const allProfiles = profiles || [];
-  const isPresetEngine = PRESET_ENGINES.has(selectedEngine);
+  const isPresetEngine = PRESET_ONLY_ENGINES[selectedEngine] === true;
 
   /** Whether a profile is supported by the currently selected engine. */
   const isSupported = (p: (typeof allProfiles)[number]) =>

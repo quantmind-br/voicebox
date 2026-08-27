@@ -5,10 +5,8 @@ import * as z from 'zod';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
 import type { EffectConfig } from '@/lib/api/types';
-import {
-  GENERATION_LANGUAGE_CODES,
-  type GenerationLanguageCode,
-} from '@/lib/constants/languages';
+import { isApiEngine } from '@/lib/constants/engines';
+import { GENERATION_LANGUAGE_CODES, type GenerationLanguageCode } from '@/lib/constants/languages';
 import { useGeneration } from '@/lib/hooks/useGeneration';
 import { useModelDownloadToast } from '@/lib/hooks/useModelDownloadToast';
 import { useGenerationSettings } from '@/lib/hooks/useSettings';
@@ -32,6 +30,7 @@ const generationSchema = z.object({
       'chatterbox_turbo',
       'tada',
       'kokoro',
+      'gemini',
     ])
     .optional(),
   personality: z.boolean().optional(),
@@ -129,24 +128,24 @@ export function useGenerationForm(options: UseGenerationFormOptions = {}) {
                       ? 'Qwen TTS 1.7B'
                       : 'Qwen TTS 0.6B';
 
-      // Check if model needs downloading
-      try {
-        const modelStatus = await apiClient.getModelStatus();
-        const model = modelStatus.models.find((m) => m.model_name === modelName);
+      if (!isApiEngine(engine)) {
+        try {
+          const modelStatus = await apiClient.getModelStatus();
+          const model = modelStatus.models.find((candidate) => candidate.model_name === modelName);
 
-        if (model && !model.downloaded) {
-          setDownloadingModelName(modelName);
-          setDownloadingDisplayName(displayName);
+          if (model && !model.downloaded) {
+            setDownloadingModelName(modelName);
+            setDownloadingDisplayName(displayName);
+          }
+        } catch (error) {
+          console.error('Failed to check model status:', error);
         }
-      } catch (error) {
-        console.error('Failed to check model status:', error);
       }
 
       const hasModelSizes =
         engine === 'qwen' || engine === 'qwen_custom_voice' || engine === 'tada';
-      // Only Qwen CustomVoice actually honors the instruct kwarg at model level.
-      // Base Qwen3-TTS accepts the kwarg but ignores it.
-      const supportsInstruct = engine === 'qwen_custom_voice';
+      // CustomVoice and Gemini accept natural-language style instructions.
+      const supportsInstruct = engine === 'qwen_custom_voice' || engine === 'gemini';
       const effectsChain = options.getEffectsChain?.();
       // This now returns immediately with status="generating"
       const result = await generation.mutateAsync({

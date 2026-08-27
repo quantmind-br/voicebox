@@ -36,9 +36,9 @@ export interface DictationReadiness {
  * synthetic paste — dictation still records and lands in Captures without it.
  *
  * Gates:
- *  - stt / llm: backend ``/capture/readiness`` (polled, since downloads
- *    finish out-of-band — e.g. user kicks off a download in another tab and
- *    expects the toggle to auto-unlock when it lands)
+ *  - stt / llm: backend ``/capture/readiness`` (``llm`` is absent for
+ *    Gemini Smart mode, which performs refinement remotely; model downloads
+ *    finish out-of-band, so unresolved gates are polled)
  *  - input_monitoring / accessibility: macOS TCC checks via Tauri commands
  *    (rechecked on window focus by the underlying hooks)
  *
@@ -70,11 +70,11 @@ export function useDictationReadiness(): DictationReadiness {
     // useSettings. refetchOnWindowFocus stays gated to the same condition.
     refetchInterval: (query) => {
       const d = query.state.data;
-      return d && d.stt.ready && d.llm.ready ? false : READINESS_POLL_INTERVAL_MS;
+      return d?.stt.ready && (d.llm?.ready ?? true) ? false : READINESS_POLL_INTERVAL_MS;
     },
     refetchOnWindowFocus: (query) => {
       const d = query.state.data;
-      return !(d && d.stt.ready && d.llm.ready);
+      return !(d?.stt.ready && (d.llm?.ready ?? true));
     },
   });
 
@@ -83,7 +83,7 @@ export function useDictationReadiness(): DictationReadiness {
   const inputMonitoring = isTauri ? !inputMonNeeds : true;
   const accessibility = isTauri ? !a11yNeeds : true;
   const sttReady = data?.stt.ready ?? false;
-  const llmReady = data?.llm.ready ?? false;
+  const llmReady = data?.llm?.ready ?? true;
 
   const missing: ReadinessGate[] = [];
   if (!sttReady) missing.push('stt');
@@ -98,7 +98,7 @@ export function useDictationReadiness(): DictationReadiness {
     allReady: missing.length === 0,
     missing,
     stt: data?.stt,
-    llm: data?.llm,
+    llm: data?.llm ?? undefined,
     inputMonitoring,
     accessibility,
     accessibilityHint: isTauri ? a11yHint : '',

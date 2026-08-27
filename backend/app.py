@@ -364,7 +364,7 @@ async def _run_shutdown() -> None:
     except Exception:
         logger.exception("Failed to unload TTS model")
     try:
-        transcribe.unload_whisper_model()
+        transcribe.unload_stt_models()
     except Exception:
         logger.exception("Failed to unload Whisper model")
     try:

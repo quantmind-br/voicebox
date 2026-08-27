@@ -6,13 +6,14 @@ Usage:
     python build_binary.py --cuda    # Build CUDA-enabled server binary
 """
 
-import PyInstaller.__main__
 import argparse
 import logging
 import os
 import platform
 import sys
 from pathlib import Path
+
+import PyInstaller.__main__
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,12 @@ def build_server(cuda=False, rocm=False):
             "backend.backends.pytorch_backend",
             "--hidden-import",
             "backend.backends.qwen_custom_voice_backend",
+            "--hidden-import",
+            "backend.backends.gemini_stt_backend",
+            "--hidden-import",
+            "backend.backends.gemini_tts_backend",
+            "--hidden-import",
+            "backend.utils.gemini_api",
             "--hidden-import",
             "backend.utils.audio",
             "--hidden-import",

@@ -319,6 +319,8 @@ class PyTorchSTTBackend:
         audio_path: str,
         language: Optional[str] = None,
         model_size: Optional[str] = None,
+        *,
+        options: dict | None = None,
     ) -> str:
         """
         Transcribe audio to text.
