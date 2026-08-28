@@ -84,6 +84,12 @@ const OPEN_OVERLAY_SELECTOR = [
   '[role="dialog"][data-state="open"]',
   '[role="alertdialog"][data-state="open"]',
   '[role="menu"][data-state="open"]',
+  '[role="listbox"][data-state="open"]',
+  // Catch-all for the popper-rendered layers — Popover, HoverCard, Select and
+  // Combobox content. They all dismiss on Escape, and not every one of them
+  // carries a role we could match on, so match the wrapper Radix puts around
+  // them instead. Keeps this guard from going stale as the tab gains widgets.
+  '[data-radix-popper-content-wrapper] [data-state="open"]',
 ].join(',');
 
 function formatDuration(ms?: number | null): string {
@@ -189,7 +195,11 @@ export function CapturesTab() {
   useEffect(() => {
     if (!recordingActive) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // `isComposing` leaves Escape to the IME, whose own meaning for the key
+      // is "abandon this composition". It reaches us without defaultPrevented,
+      // so ja/zh users backing out of a candidate list would otherwise lose
+      // the recording along with it.
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
       // Radix's dismissable layers close on Escape without calling
       // preventDefault, so defaultPrevented alone would let one keypress both
       // close a dialog and silently discard the recording behind it. One

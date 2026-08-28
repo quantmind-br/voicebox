@@ -505,11 +505,15 @@ fn read_persisted_close_to_tray(data_dir: &std::path::Path) -> Option<bool> {
     }
 }
 
-fn write_persisted_close_to_tray(data_dir: &std::path::Path, value: bool) {
-    let _ = std::fs::create_dir_all(data_dir);
-    if let Err(e) = std::fs::write(close_to_tray_file(data_dir), if value { "1" } else { "0" }) {
-        println!("Failed to persist close-to-tray preference: {}", e);
-    }
+/// Persist the close-to-tray preference. The failure is returned rather than
+/// logged: the settings toggle reverts itself on a rejected promise, so
+/// swallowing it here would leave the UI advertising a choice that quietly
+/// does not survive the next launch.
+fn write_persisted_close_to_tray(data_dir: &std::path::Path, value: bool) -> Result<(), String> {
+    std::fs::create_dir_all(data_dir)
+        .map_err(|e| format!("Failed to create the app data directory: {}", e))?;
+    std::fs::write(close_to_tray_file(data_dir), if value { "1" } else { "0" })
+        .map_err(|e| format!("Failed to persist close-to-tray preference: {}", e))
 }
 
 /// Bring the backend back up if it has stopped answering.
@@ -535,8 +539,21 @@ fn ensure_server_running(app: &tauri::AppHandle) {
         return;
     }
 
+    // Clearing the guard has to survive a panic. Tokio swallows a panicking
+    // task, so an unwind anywhere below would leave the flag set for the rest
+    // of the process and turn every later recovery into a silent no-op —
+    // precisely the unrecoverable state this function exists to avoid.
+    struct RecoveryGuard;
+    impl Drop for RecoveryGuard {
+        fn drop(&mut self) {
+            SERVER_RECOVERY_IN_FLIGHT.store(false, Ordering::SeqCst);
+        }
+    }
+
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let _guard = RecoveryGuard;
+
         // `check_health` uses a blocking client; calling it directly on a
         // runtime worker would panic.
         let healthy = tauri::async_runtime::spawn_blocking(|| check_health(SERVER_PORT))
@@ -551,8 +568,6 @@ fn ensure_server_running(app: &tauri::AppHandle) {
                 Err(e) => eprintln!("ensure_server_running: could not restart the backend: {}", e),
             }
         }
-
-        SERVER_RECOVERY_IN_FLIGHT.store(false, Ordering::SeqCst);
     });
 }
 
@@ -1135,6 +1150,35 @@ async fn start_server(
                         "line": line_str.trim_end(),
                     }));
                 }
+                tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
+                    eprintln!(
+                        "Server process exited (code: {:?}, signal: {:?})",
+                        payload.code, payload.signal
+                    );
+                    // Nothing else clears these when the sidecar dies on its
+                    // own — only stop_server and the dev-mode paths do — and
+                    // start_server returns early while `child` is still set.
+                    // Left as-is, ensure_server_running would report the
+                    // backend "back up" without having spawned anything.
+                    //
+                    // Only clear our own process: a deliberate stop + restart
+                    // can have a fresh child stored by the time this event
+                    // arrives, and taking that one would strand a live sidecar
+                    // that no later start_server can see.
+                    let state = app_handle.state::<ServerState>();
+                    let was_ours = {
+                        let mut pid_slot = state.server_pid.lock().unwrap();
+                        if *pid_slot == Some(process_pid) {
+                            pid_slot.take();
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if was_ours {
+                        let _ = state.child.lock().unwrap().take();
+                    }
+                }
                 _ => {}
             }
         }
@@ -1238,9 +1282,13 @@ fn set_close_to_tray(
     state: State<'_, AppLifecycleState>,
     enabled: bool,
 ) -> Result<(), String> {
-    state.close_to_tray.store(enabled, Ordering::SeqCst);
+    // Persist before flipping the in-memory flag. A failure here returns `Err`
+    // and the settings toggle springs back to its old position, so storing up
+    // front would leave the close button doing the opposite of what the UI
+    // shows until the next restart.
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    write_persisted_close_to_tray(&data_dir, enabled);
+    write_persisted_close_to_tray(&data_dir, enabled)?;
+    state.close_to_tray.store(enabled, Ordering::SeqCst);
     Ok(())
 }
 

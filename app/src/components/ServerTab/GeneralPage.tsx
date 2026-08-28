@@ -259,8 +259,16 @@ function CloseToTrayRow() {
             setCloseToTray(checked);
             platform.lifecycle.setCloseToTray(checked).catch(() => {
               // Revert: leaving the toggle flipped would misrepresent what
-              // the close button is actually going to do.
-              setCloseToTray(!checked);
+              // the close button is actually going to do. Re-read rather than
+              // flipping back to `!checked` — nothing serializes these calls,
+              // so that stale value would clobber a second, successful toggle
+              // that landed while this one was still in flight.
+              platform.lifecycle
+                .getCloseToTray()
+                .then(setCloseToTray)
+                .catch(() => {
+                  setCloseToTray(!checked);
+                });
               toast({
                 title: t('settings.general.closeToTray.failedTitle'),
                 description: t('settings.general.closeToTray.failedDescription'),

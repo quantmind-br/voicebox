@@ -21,12 +21,19 @@ export function useAudioRecording({
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const cancelledRef = useRef<boolean>(false);
+  // Bumped by every startRecording. A call whose token has gone stale by the
+  // time getUserMedia resolves was superseded and must not install itself:
+  // `cancelledRef` alone can't tell "cancelled" from "cancelled, then started
+  // again", because the restart clears the flag before the first call's
+  // promise settles.
+  const startGenerationRef = useRef(0);
 
   const startRecording = useCallback(async () => {
     try {
       setError(null);
       chunksRef.current = [];
       cancelledRef.current = false;
+      const generation = ++startGenerationRef.current;
       setDuration(0);
 
       // Check if getUserMedia is available
@@ -71,7 +78,11 @@ export function useAudioRecording({
       // permission prompt up — and callers show a "recording" affordance the
       // moment they call us. A cancel landing in that window must win, or the
       // recording starts anyway and the user has to cancel a second time.
-      if (cancelledRef.current) {
+      // A newer start landing in the same window wins too: without the
+      // generation check this call would go on to build a second live
+      // MediaRecorder, and the newer one would then overwrite the refs,
+      // leaking this stream's mic tracks (indicator stuck on) and its timer.
+      if (cancelledRef.current || startGenerationRef.current !== generation) {
         stream.getTracks().forEach((track) => {
           track.stop();
         });
@@ -192,7 +203,12 @@ export function useAudioRecording({
     // inside startRecording's getUserMedia await, and this flag is what that
     // path checks before it starts recording for real.
     cancelledRef.current = true; // Must be set before stop() triggers onstop
-    if (mediaRecorderRef.current) {
+    // Nothing nulls the ref when a recording ends, so it can still hold the
+    // *previous* session's finished recorder. stop() on an inactive one throws
+    // InvalidStateError, which would abort the rest of this cleanup and escape
+    // into the caller — leaving its pill stuck on "recording". Same guard the
+    // auto-stop path uses.
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       chunksRef.current = [];
       mediaRecorderRef.current.stop();
       setIsRecording(false);

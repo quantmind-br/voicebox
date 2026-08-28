@@ -130,16 +130,6 @@ impl HotkeyMonitor {
     }
 
     fn apply(&mut self, bindings: Bindings) {
-        // The Escape watcher belongs to the monitor session being torn down:
-        // once the dispatcher is gone, nothing will ever emit the
-        // `StopRecording` that would otherwise disarm it, so it would outlive
-        // every capture and keep an OS tap open for the rest of the process.
-        // This is the path the reset after an Escape-cancel takes; `Drop` does
-        // the same for itself. Safe to interleave with the dispatcher's own disarm:
-        // `disarm_escape_cancel` never holds the mutex across a join, so the
-        // dispatcher can't be stuck on it while we wait to join the dispatcher.
-        disarm_escape_cancel();
-
         // Tear down any existing matcher + dispatcher first. The
         // dispatcher sees the shutdown flag on its next recv_timeout
         // (≤100ms) and returns; joining waits for that. Dropping the
@@ -149,6 +139,22 @@ impl HotkeyMonitor {
             active.shutdown.store(true, Ordering::Relaxed);
             let _ = active.dispatcher.join();
         }
+
+        // The Escape watcher belongs to the session just torn down: once the
+        // dispatcher is gone, nothing will ever emit the `StopRecording` that
+        // would otherwise disarm it, so it would outlive every capture and
+        // keep an OS tap open for the rest of the process. This is the path
+        // the reset after an Escape-cancel takes; `Drop` does the same for
+        // itself.
+        //
+        // After the join, never before: the dispatcher re-reads the shutdown
+        // flag only at the top of its loop, so a chord event landing in the
+        // meantime would run `arm_escape_cancel` and leave behind exactly the
+        // orphaned watcher this call exists to prevent. Once the join returns,
+        // nothing can arm concurrently. Safe against the dispatcher's own
+        // disarm too: `disarm_escape_cancel` never holds the mutex across a
+        // join, so it can't be stuck on it while we wait.
+        disarm_escape_cancel();
 
         self.bindings = bindings;
 
@@ -183,13 +189,15 @@ impl HotkeyMonitor {
 
 impl Drop for HotkeyMonitor {
     fn drop(&mut self) {
-        // Same reason `apply` does it: nothing left alive would ever emit the
-        // `StopRecording` that disarms the watcher.
-        disarm_escape_cancel();
         if let Some(active) = self.active.take() {
             active.shutdown.store(true, Ordering::Relaxed);
             let _ = active.dispatcher.join();
         }
+        // Same reason — and same ordering — as `apply`: nothing left alive
+        // would ever emit the `StopRecording` that disarms the watcher, and
+        // disarming ahead of the join would race the dispatcher into re-arming
+        // one last time.
+        disarm_escape_cancel();
     }
 }
 
