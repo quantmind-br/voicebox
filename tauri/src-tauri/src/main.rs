@@ -36,10 +36,23 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_MENU_OPEN_ID: &str = "open";
 const TRAY_MENU_QUIT_ID: &str = "quit";
 
-#[derive(Default)]
 struct AppLifecycleState {
     quitting: AtomicBool,
     tray_available: AtomicBool,
+    /// Whether closing the main window tucks it into the tray instead of
+    /// quitting. Defaults to on — the behaviour the tray support shipped
+    /// with — and is persisted so the choice survives a restart.
+    close_to_tray: AtomicBool,
+}
+
+impl Default for AppLifecycleState {
+    fn default() -> Self {
+        Self {
+            quitting: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
+            close_to_tray: AtomicBool::new(true),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,8 +61,13 @@ enum CloseAction {
     Close,
 }
 
-fn close_action(window_label: &str, quitting: bool, tray_available: bool) -> CloseAction {
-    if window_label == MAIN_WINDOW_LABEL && !quitting && tray_available {
+fn close_action(
+    window_label: &str,
+    quitting: bool,
+    tray_available: bool,
+    close_to_tray: bool,
+) -> CloseAction {
+    if window_label == MAIN_WINDOW_LABEL && !quitting && tray_available && close_to_tray {
         CloseAction::HideToTray
     } else {
         CloseAction::Close
@@ -71,7 +89,7 @@ mod close_policy_tests {
     #[test]
     fn main_window_hides_to_tray_during_normal_operation() {
         assert_eq!(
-            close_action(MAIN_WINDOW_LABEL, false, true),
+            close_action(MAIN_WINDOW_LABEL, false, true, true),
             CloseAction::HideToTray
         );
     }
@@ -79,7 +97,7 @@ mod close_policy_tests {
     #[test]
     fn main_window_closes_during_explicit_quit() {
         assert_eq!(
-            close_action(MAIN_WINDOW_LABEL, true, true),
+            close_action(MAIN_WINDOW_LABEL, true, true, true),
             CloseAction::Close
         );
     }
@@ -87,7 +105,17 @@ mod close_policy_tests {
     #[test]
     fn main_window_closes_when_tray_is_unavailable() {
         assert_eq!(
-            close_action(MAIN_WINDOW_LABEL, false, false),
+            close_action(MAIN_WINDOW_LABEL, false, false, true),
+            CloseAction::Close
+        );
+    }
+
+    #[test]
+    fn main_window_closes_when_the_user_opted_out_of_the_tray() {
+        // The preference is the whole point: with it off, closing the window
+        // quits, which is also what takes the backend down with it.
+        assert_eq!(
+            close_action(MAIN_WINDOW_LABEL, false, true, false),
             CloseAction::Close
         );
     }
@@ -95,7 +123,7 @@ mod close_policy_tests {
     #[test]
     fn auxiliary_windows_keep_native_close_behavior() {
         assert_eq!(
-            close_action(DICTATE_WINDOW_LABEL, false, true),
+            close_action(DICTATE_WINDOW_LABEL, false, true, true),
             CloseAction::Close
         );
     }
@@ -457,6 +485,75 @@ fn write_persisted_backend_override(data_dir: &std::path::Path, value: Option<&s
             let _ = std::fs::remove_file(&path);
         }
     }
+}
+
+/// Set while `ensure_server_running` is probing or restarting the backend.
+static SERVER_RECOVERY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+fn close_to_tray_file(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("close_to_tray")
+}
+
+/// Read the persisted close-to-tray preference. `None` when the user has
+/// never expressed one, which the caller reads as "keep the default".
+fn read_persisted_close_to_tray(data_dir: &std::path::Path) -> Option<bool> {
+    let raw = std::fs::read_to_string(close_to_tray_file(data_dir)).ok()?;
+    match raw.trim() {
+        "1" | "true" => Some(true),
+        "0" | "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn write_persisted_close_to_tray(data_dir: &std::path::Path, value: bool) {
+    let _ = std::fs::create_dir_all(data_dir);
+    if let Err(e) = std::fs::write(close_to_tray_file(data_dir), if value { "1" } else { "0" }) {
+        println!("Failed to persist close-to-tray preference: {}", e);
+    }
+}
+
+/// Bring the backend back up if it has stopped answering.
+///
+/// The sidecar is spawned once, at first launch. Reactivating the app —
+/// through the tray, or by relaunching, which single-instance turns into a
+/// "show the existing window" — does not go near that path, so a backend
+/// that died in the meantime (killed by hand, crashed, OOM-ed) would leave
+/// the UI talking to nothing with no way back short of a full quit.
+///
+/// Runs on the async runtime, not the caller's thread: reactivating a window
+/// must stay instant even when the health probe has to time out.
+fn ensure_server_running(app: &tauri::AppHandle) {
+    // Reentrancy guard. A recovery can take a while — the sidecar unpacks and
+    // imports torch before it answers — and every tray click lands here. A
+    // second `start_server` would overwrite the stored child and PID, orphan
+    // the first sidecar, and then sit through a 120 s startup timeout because
+    // the port it wants is already taken.
+    if SERVER_RECOVERY_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // `check_health` uses a blocking client; calling it directly on a
+        // runtime worker would panic.
+        let healthy = tauri::async_runtime::spawn_blocking(|| check_health(SERVER_PORT))
+            .await
+            .unwrap_or(false);
+
+        if !healthy {
+            println!("ensure_server_running: backend is not answering — restarting it");
+            let state = app.state::<ServerState>();
+            match start_server(app.clone(), state, None, None).await {
+                Ok(url) => println!("ensure_server_running: backend back up at {}", url),
+                Err(e) => eprintln!("ensure_server_running: could not restart the backend: {}", e),
+            }
+        }
+
+        SERVER_RECOVERY_IN_FLIGHT.store(false, Ordering::SeqCst);
+    });
 }
 
 /// Run `<exe> --version` with a 10-second timeout to avoid hanging Tauri startup.
@@ -1125,6 +1222,28 @@ async fn restart_server(
     start_server(app, state.clone(), None, None).await
 }
 
+/// Whether closing the main window currently hides it to the tray.
+#[command]
+fn get_close_to_tray(state: State<'_, AppLifecycleState>) -> bool {
+    state.close_to_tray.load(Ordering::SeqCst)
+}
+
+/// Choose what the window's close button does. Off means closing the window
+/// quits Voicebox outright — which is also what shuts the backend down, so
+/// this is the switch for anyone who does not want a server surviving in the
+/// background.
+#[command]
+fn set_close_to_tray(
+    app: tauri::AppHandle,
+    state: State<'_, AppLifecycleState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.close_to_tray.store(enabled, Ordering::SeqCst);
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    write_persisted_close_to_tray(&data_dir, enabled);
+    Ok(())
+}
+
 #[command]
 fn set_keep_server_running(state: State<'_, ServerState>, keep_running: bool) {
     println!("set_keep_server_running called with: {}", keep_running);
@@ -1404,6 +1523,27 @@ fn update_chord_bindings(
     Ok(())
 }
 
+/// Drop whatever chord state the matcher accumulated and rebuild it from the
+/// bindings already in force. Invoked by the dictate pill right after an
+/// Escape-cancel — see `HotkeyMonitor::reset` for why the cancel leaves the
+/// matcher out of sync.
+///
+/// `async` is load-bearing, not decoration. Tauri runs a plain `fn` command
+/// on the main thread; `reset` joins the dispatcher, and the dispatcher makes
+/// webview-window calls that AppKit marshals back to the main thread — main
+/// waiting on dispatcher waiting on main. Declaring it `async` hands the
+/// command to the async runtime instead, which also keeps the join (up to
+/// ~100 ms) off the UI thread.
+#[cfg(desktop)]
+#[command]
+async fn reset_chord_state(state: State<'_, HotkeyState>) -> Result<(), String> {
+    let mut slot = state.monitor.lock().map_err(|e| e.to_string())?;
+    if let Some(monitor) = slot.as_mut() {
+        monitor.reset();
+    }
+    Ok(())
+}
+
 /// Open the Privacy & Security → Accessibility pane in System Settings so
 /// the user can grant the permission. The URL scheme is stable across
 /// macOS 10.14–15; no-op on other platforms.
@@ -1639,7 +1779,11 @@ async fn debug_clipboard_roundtrip(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Relaunching is how a user asks for the app back, and it lands
+            // here rather than in `setup` — so this is the only place that can
+            // notice the backend is gone and bring it back.
             show_main_window(app);
+            ensure_server_running(app);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -1674,6 +1818,16 @@ pub fn run() {
                 // keyboard tap or trigger the macOS Input Monitoring prompt.
                 app.manage(HotkeyState::default());
 
+                // Restore the close-button preference before the window can
+                // be closed. Absent (never set) keeps the default.
+                if let Ok(data_dir) = app.path().app_data_dir() {
+                    if let Some(close_to_tray) = read_persisted_close_to_tray(&data_dir) {
+                        app.state::<AppLifecycleState>()
+                            .close_to_tray
+                            .store(close_to_tray, Ordering::SeqCst);
+                    }
+                }
+
                 // The frontend emits `dictate:hide` whenever the pill cycle
                 // finishes (rest-fade → hidden). `hide()` alone has been
                 // unreliable for transparent always-on-top windows on macOS
@@ -1684,6 +1838,13 @@ pub fn run() {
                 // user sees and interacts with nothing.
                 let handle_for_hide = app.handle().clone();
                 app.handle().listen("dictate:hide", move |_event| {
+                    // Deliberately does *not* disarm the Escape watcher.
+                    // `dictate:hide` fires whenever the pill goes hidden —
+                    // including on mount — and arrives here asynchronously, so
+                    // a hide from the previous cycle could land after the next
+                    // capture armed its watcher and strip it. The watcher is
+                    // disarmed on chord release and in `HotkeyMonitor::apply`
+                    // instead, both ordered against the arm.
                     if let Some(window) = handle_for_hide.get_webview_window(DICTATE_WINDOW_LABEL) {
                         // Skip on Linux: aborts if the window was never realized
                         // (see show_dictate_window).
@@ -1726,7 +1887,10 @@ pub fn run() {
                     .menu(&tray_menu)
                     .tooltip("Voicebox")
                     .on_menu_event(|app, event| match event.id().as_ref() {
-                        TRAY_MENU_OPEN_ID => show_main_window(app),
+                        TRAY_MENU_OPEN_ID => {
+                            show_main_window(app);
+                            ensure_server_running(app);
+                        }
                         TRAY_MENU_QUIT_ID => {
                             app.state::<AppLifecycleState>().quitting.store(true, Ordering::SeqCst);
                             app.exit(0);
@@ -1787,6 +1951,8 @@ pub fn run() {
             stop_server,
             restart_server,
             set_keep_server_running,
+            get_close_to_tray,
+            set_close_to_tray,
             set_backend_override,
             start_system_audio_capture,
             stop_system_audio_capture,
@@ -1807,14 +1973,18 @@ pub fn run() {
             paste_final_text,
             enable_hotkey,
             disable_hotkey,
-            update_chord_bindings
+            update_chord_bindings,
+            reset_chord_state
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let lifecycle = window.state::<AppLifecycleState>();
                 let quitting = lifecycle.quitting.load(Ordering::SeqCst);
                 let tray_available = lifecycle.tray_available.load(Ordering::SeqCst);
-                if close_action(window.label(), quitting, tray_available) == CloseAction::HideToTray {
+                let close_to_tray = lifecycle.close_to_tray.load(Ordering::SeqCst);
+                if close_action(window.label(), quitting, tray_available, close_to_tray)
+                    == CloseAction::HideToTray
+                {
                     api.prevent_close();
                     let _ = window.hide();
                 }

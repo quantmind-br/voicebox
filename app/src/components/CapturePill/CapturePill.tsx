@@ -70,11 +70,16 @@ function formatElapsed(ms: number): string {
  * (recording advances the timer, transcribing/refining hold the final value).
  * The ``error`` state renders a destructive variant — a clickable pill that
  * copies its message to the clipboard on press and calls ``onDismiss``.
+ *
+ * Passing ``onCancel`` surfaces the ``esc`` chip while recording, so the
+ * shortcut is discoverable rather than folklore. Only pass it where Escape
+ * is actually wired up.
  */
 export function CapturePill({
   state,
   elapsedMs,
   onStop,
+  onCancel,
   errorMessage,
   onDismiss,
   className,
@@ -82,6 +87,7 @@ export function CapturePill({
   state: PillState;
   elapsedMs: number;
   onStop?: () => void;
+  onCancel?: () => void;
   errorMessage?: string | null;
   onDismiss?: () => void;
   className?: string;
@@ -125,6 +131,23 @@ export function CapturePill({
       dot
     );
 
+  const cancelChip =
+    onCancel && state === 'recording' ? (
+      <button
+        type="button"
+        onClick={onCancel}
+        aria-label={t('captures.pill.cancelAria')}
+        title={t('captures.pill.cancelAria')}
+        className={cn(
+          'shrink-0 rounded px-1.5 py-0.5 -mr-1 text-[10px] font-semibold uppercase tracking-wide',
+          'text-accent/60 ring-1 ring-accent/25 transition-colors hover:text-accent hover:ring-accent/50',
+          'focus:outline-none focus:ring-2 focus:ring-accent/50',
+        )}
+      >
+        {t('captures.pill.cancelKey')}
+      </button>
+    ) : null;
+
   // Completed gets an inset accent stroke (via box-shadow, not Tailwind's
   // ring — ring utility doesn't compose with arbitrary shadow-[…]) to mark
   // the success moment without changing the pill's dimensions.
@@ -151,6 +174,7 @@ export function CapturePill({
       <span className="text-xs tabular-nums text-accent/70 font-medium shrink-0 -ml-1">
         {formatElapsed(elapsedMs)}
       </span>
+      {cancelChip}
     </div>
   );
 }

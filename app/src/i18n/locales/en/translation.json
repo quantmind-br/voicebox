@@ -102,6 +102,8 @@
       "speaking": "Speaking",
       "completed": "Done",
       "stopAria": "Stop recording",
+      "cancelKey": "esc",
+      "cancelAria": "Cancel recording (Esc)",
       "errorFallback": "Something went wrong",
       "errorCopyTooltip": "Click to copy error"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "Setting updated",
         "runningDescription": "Server will continue running after Voicebox quits",
         "stoppedDescription": "Server will stop when Voicebox quits"
+      },
+      "closeToTray": {
+        "title": "Keep Voicebox in the tray when the window is closed",
+        "description": "Closing the window hides Voicebox instead of quitting it, and the server keeps running. Turn this off to quit — and stop the server — with the close button.",
+        "failedTitle": "Failed to update setting",
+        "failedDescription": "Could not save the close-button preference."
       },
       "networkAccess": {
         "title": "Allow network access",

@@ -102,6 +102,8 @@
       "speaking": "Riproduzione voce in corso",
       "completed": "Fatto",
       "stopAria": "Interrompi registrazione",
+      "cancelKey": "esc",
+      "cancelAria": "Annulla registrazione (Esc)",
       "errorFallback": "Qualcosa è andato storto",
       "errorCopyTooltip": "Clicca per copiare l'errore"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "Impostazione aggiornata",
         "runningDescription": "Il server rimarrà in esecuzione dopo l'uscita da Voicebox",
         "stoppedDescription": "Il server si arresterà all'uscita da Voicebox"
+      },
+      "closeToTray": {
+        "title": "Mantieni Voicebox nella barra di sistema alla chiusura della finestra",
+        "description": "Chiudere la finestra nasconde Voicebox invece di uscire, e il server continua a funzionare. Disattiva questa opzione per uscire — e fermare il server — con il pulsante di chiusura.",
+        "failedTitle": "Aggiornamento dell'impostazione non riuscito",
+        "failedDescription": "Impossibile salvare la preferenza del pulsante di chiusura."
       },
       "networkAccess": {
         "title": "Consenti l'accesso alla rete",

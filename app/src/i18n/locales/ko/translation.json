@@ -102,6 +102,8 @@
       "speaking": "말하는 중",
       "completed": "완료",
       "stopAria": "녹음 중지",
+      "cancelKey": "esc",
+      "cancelAria": "녹음 취소 (Esc)",
       "errorFallback": "문제가 발생했습니다",
       "errorCopyTooltip": "클릭하여 오류 복사"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "설정 업데이트됨",
         "runningDescription": "Voicebox 종료 후에도 서버가 계속 실행됩니다",
         "stoppedDescription": "Voicebox 종료 시 서버가 중지됩니다"
+      },
+      "closeToTray": {
+        "title": "창을 닫을 때 Voicebox를 트레이에 유지",
+        "description": "창을 닫으면 종료되지 않고 숨겨지며 서버도 계속 실행됩니다. 끄면 닫기 버튼으로 종료되고 서버도 중지됩니다.",
+        "failedTitle": "설정 업데이트 실패",
+        "failedDescription": "닫기 버튼 설정을 저장하지 못했습니다."
       },
       "networkAccess": {
         "title": "네트워크 액세스 허용",

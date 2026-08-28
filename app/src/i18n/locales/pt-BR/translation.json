@@ -102,6 +102,8 @@
       "speaking": "Falando",
       "completed": "Concluído",
       "stopAria": "Parar gravação",
+      "cancelKey": "esc",
+      "cancelAria": "Cancelar gravação (Esc)",
       "errorFallback": "Algo deu errado",
       "errorCopyTooltip": "Clique para copiar o erro"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "Configuração atualizada",
         "runningDescription": "O servidor continuará rodando após sair do Voicebox",
         "stoppedDescription": "O servidor será parado ao sair do Voicebox"
+      },
+      "closeToTray": {
+        "title": "Manter o Voicebox na bandeja ao fechar a janela",
+        "description": "Fechar a janela oculta o Voicebox em vez de encerrá-lo, e o servidor continua rodando. Desative para encerrar — e parar o servidor — pelo botão de fechar.",
+        "failedTitle": "Falha ao atualizar a configuração",
+        "failedDescription": "Não foi possível salvar a preferência do botão de fechar."
       },
       "networkAccess": {
         "title": "Permitir acesso à rede",

@@ -102,6 +102,8 @@
       "speaking": "朗读中",
       "completed": "完成",
       "stopAria": "停止录制",
+      "cancelKey": "esc",
+      "cancelAria": "取消录制 (Esc)",
       "errorFallback": "出现了错误",
       "errorCopyTooltip": "点击以复制错误"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "设置已更新",
         "runningDescription": "退出 Voicebox 后服务器将继续运行",
         "stoppedDescription": "退出 Voicebox 时服务器将停止"
+      },
+      "closeToTray": {
+        "title": "关闭窗口时将 Voicebox 保留在托盘",
+        "description": "关闭窗口只会隐藏 Voicebox 而不退出，服务器也会继续运行。关闭此项后，点击关闭按钮将退出并停止服务器。",
+        "failedTitle": "更新设置失败",
+        "failedDescription": "无法保存关闭按钮的偏好设置。"
       },
       "networkAccess": {
         "title": "允许网络访问",

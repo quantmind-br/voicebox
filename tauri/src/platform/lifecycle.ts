@@ -52,6 +52,28 @@ class TauriLifecycle implements PlatformLifecycle {
     }
   }
 
+  async getCloseToTray(): Promise<boolean> {
+    try {
+      return await invoke<boolean>('get_close_to_tray');
+    } catch (error) {
+      console.error('Failed to read close-to-tray setting:', error);
+      // Matches the Rust-side default, so a failed read never makes the
+      // toggle claim the window quits when it actually hides.
+      return true;
+    }
+  }
+
+  async setCloseToTray(enabled: boolean): Promise<void> {
+    // Deliberately rethrows, unlike setKeepServerRunning: the caller reverts
+    // its toggle when the preference didn't actually persist.
+    try {
+      await invoke('set_close_to_tray', { enabled });
+    } catch (error) {
+      console.error('Failed to set close-to-tray setting:', error);
+      throw error;
+    }
+  }
+
   async setBackendOverride(backend?: string | null): Promise<void> {
     try {
       await invoke('set_backend_override', { backend: backend ?? undefined });

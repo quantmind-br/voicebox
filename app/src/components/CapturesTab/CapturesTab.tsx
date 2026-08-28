@@ -77,6 +77,15 @@ import { usePlayerStore } from '@/stores/playerStore';
 
 const CAPTURE_AUDIO_MIME = 'audio/*,.wav,.mp3,.m4a,.flac,.ogg,.webm';
 
+// Radix marks its open dismissable layers with `data-state="open"`. Used to
+// tell whether an Escape press is already spoken for before the recording
+// cancel claims it.
+const OPEN_OVERLAY_SELECTOR = [
+  '[role="dialog"][data-state="open"]',
+  '[role="alertdialog"][data-state="open"]',
+  '[role="menu"][data-state="open"]',
+].join(',');
+
 function formatDuration(ms?: number | null): string {
   if (!ms || ms < 0) return '0:00';
   const total = Math.round(ms / 1000);
@@ -170,6 +179,28 @@ export function CapturesTab() {
   const session = useCaptureRecordingSession({
     onCaptureCreated: (capture) => setSelectedId(capture.id),
   });
+
+  // Escape drops an in-progress recording, matching the floating pill (which
+  // gets the same key from Rust's global tap because it never takes focus).
+  // Bound only while recording, so Escape keeps its normal meaning — closing
+  // a dialog, clearing a field — the rest of the time.
+  const cancelRecording = session.cancelRecording;
+  const recordingActive = session.pillState === 'recording';
+  useEffect(() => {
+    if (!recordingActive) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // Radix's dismissable layers close on Escape without calling
+      // preventDefault, so defaultPrevented alone would let one keypress both
+      // close a dialog and silently discard the recording behind it. One
+      // action per press: if any layer is open, it gets the key.
+      if (document.querySelector(OPEN_OVERLAY_SELECTOR)) return;
+      event.preventDefault();
+      cancelRecording();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [recordingActive, cancelRecording]);
 
   const { data: capturesData, isLoading: capturesLoading } = useQuery({
     queryKey: ['captures'],
@@ -575,6 +606,7 @@ export function CapturesTab() {
                 errorMessage={session.errorMessage}
                 onDismiss={session.dismissError}
                 onStop={session.isRecording ? session.stopRecording : undefined}
+                onCancel={session.cancelRecording}
               />
             )}
             {session.pillState === 'hidden' && (

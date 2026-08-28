@@ -102,6 +102,8 @@
       "speaking": "Parole",
       "completed": "Terminé",
       "stopAria": "Arrêter l'enregistrement",
+      "cancelKey": "échap",
+      "cancelAria": "Annuler l'enregistrement (Échap)",
       "errorFallback": "Une erreur s'est produite",
       "errorCopyTooltip": "Cliquez pour copier l'erreur"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "Paramètre mis à jour",
         "runningDescription": "Le serveur continuera de fonctionner après avoir quitté Voicebox",
         "stoppedDescription": "Le serveur s'arrêtera lorsque Voicebox quittera"
+      },
+      "closeToTray": {
+        "title": "Garder Voicebox dans la zone de notification à la fermeture",
+        "description": "Fermer la fenêtre masque Voicebox au lieu de le quitter, et le serveur continue de tourner. Désactivez cette option pour quitter — et arrêter le serveur — avec le bouton de fermeture.",
+        "failedTitle": "Échec de la mise à jour du réglage",
+        "failedDescription": "Impossible d'enregistrer la préférence du bouton de fermeture."
       },
       "networkAccess": {
         "title": "Autoriser l'accès réseau",

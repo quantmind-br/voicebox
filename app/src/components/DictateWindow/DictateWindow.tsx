@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CapturePill } from '@/components/CapturePill/CapturePill';
 import { apiClient } from '@/lib/api/client';
 import type { FocusSnapshot } from '@/lib/api/types';
@@ -12,8 +12,8 @@ import { useCaptureRecordingSession } from '@/lib/hooks/useCaptureRecordingSessi
  * this branch and renders the full app shell.
  *
  * The pill surfaces for two independent cycles:
- *   1. User dictation — driven by ``dictate:start`` / ``dictate:stop``
- *      from the Rust hotkey monitor.
+ *   1. User dictation — driven by ``dictate:start`` / ``dictate:stop`` /
+ *      ``dictate:cancel`` from the Rust hotkey monitor.
  *   2. Agent speech — driven by ``dictate:speak-start`` / ``dictate:speak-end``
  *      from the Rust ``speak_monitor`` (which owns the backend SSE stream).
  *      On speak-start we subscribe to this single generation's status SSE,
@@ -71,6 +71,23 @@ export function DictateWindow() {
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
+  // Throw the in-flight recording away. Reached from the global Escape key
+  // (``dictate:cancel``) and from the pill's own ``esc`` chip, so both go
+  // through the chord-state reset: ending a recording this way is invisible
+  // to keytap, which would otherwise keep a toggle session marked active —
+  // see ``HotkeyMonitor::reset``.
+  const cancelCapture = useCallback(() => {
+    // Pill state, not ``isRecording`` — see ``cancelRecording`` for why the
+    // microphone flag is the wrong gate.
+    if (sessionRef.current.pillState !== 'recording') return;
+    sessionRef.current.cancelRecording();
+    invoke('reset_chord_state').catch((err) => {
+      // Worth a line: on failure the matcher keeps the stale toggle state
+      // this call exists to clear, which degrades the next chord press.
+      console.warn('[dictate] reset_chord_state failed; chord state may be stale:', err);
+    });
+  }, []);
+
   useEffect(() => {
     const unlistens: Promise<UnlistenFn>[] = [];
     unlistens.push(
@@ -84,10 +101,15 @@ export function DictateWindow() {
         if (sessionRef.current.isRecording) sessionRef.current.stopRecording();
       }),
     );
+    // Escape pressed anywhere while recording. Rust arms a dedicated tap for
+    // the duration of the capture and emits this; the guard inside
+    // ``cancelCapture`` means a late Escape can't disturb the transcribe /
+    // refine tail.
+    unlistens.push(listen('dictate:cancel', cancelCapture));
     return () => {
       for (const p of unlistens) p.then((fn) => fn()).catch(() => {});
     };
-  }, []);
+  }, [cancelCapture]);
 
   // --- Agent-speak cycle ---------------------------------------------------
 
@@ -289,6 +311,7 @@ export function DictateWindow() {
           errorMessage={session.errorMessage}
           onDismiss={session.dismissError}
           onStop={session.isRecording ? session.stopRecording : undefined}
+          onCancel={cancelCapture}
         />
       ) : null}
     </div>

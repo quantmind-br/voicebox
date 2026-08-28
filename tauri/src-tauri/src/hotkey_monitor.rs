@@ -18,6 +18,10 @@
 //! coalesce into one `Restart` so hosts can discard the transition-
 //! moment audio rather than treat it as an unrelated Stop+Start pair.
 //!
+//! Escape-to-cancel rides on a *second*, short-lived [`Tap`] armed only
+//! while a dictation is running — see [`arm_escape_cancel`] for why it
+//! can't be another chord on the shared matcher.
+//!
 //! Left- and right-hand modifier variants are kept distinct all the way
 //! down to the OS event tap (keytap's core promise). Defaults bind to
 //! right-hand Cmd + right-hand Option on macOS / right-hand Ctrl +
@@ -26,12 +30,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use keytap::chord::{Chord, ChordEvent, ChordMatcher};
-use keytap::{Key, RecvTimeoutError};
+use keytap::{EventKind, Key, RecvTimeoutError, Tap};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::focus_capture;
@@ -73,6 +77,9 @@ pub type Bindings = HashMap<ChordAction, HashSet<Key>>;
 
 pub struct HotkeyMonitor {
     app: AppHandle,
+    /// Last bindings handed to [`Self::apply`], kept so [`Self::reset`] can
+    /// rebuild the matcher without the caller having to re-read settings.
+    bindings: Bindings,
     active: Option<Active>,
 }
 
@@ -85,7 +92,11 @@ impl HotkeyMonitor {
     /// Build the monitor with initial bindings. Equivalent to constructing
     /// an empty monitor and calling [`Self::update_bindings`] once.
     pub fn spawn(app: AppHandle, bindings: Bindings) -> Self {
-        let mut m = Self { app, active: None };
+        let mut m = Self {
+            app,
+            bindings: Bindings::new(),
+            active: None,
+        };
         m.apply(bindings);
         m
     }
@@ -99,7 +110,36 @@ impl HotkeyMonitor {
         self.apply(bindings);
     }
 
+    /// Rebuild the matcher from the bindings already in force, discarding
+    /// whatever chord state it had accumulated.
+    ///
+    /// Needed after Escape-to-cancel ends a recording behind keytap's back.
+    /// A toggle session is the case that bites: the matcher still considers
+    /// the toggle chord active, so the user's next press reads as that
+    /// session's "off" press instead of starting a fresh one — and while it
+    /// thinks a Toggle is active, keytap suppresses push-to-talk entirely.
+    /// A rebuild puts the matcher and the user back in sync.
+    ///
+    /// Must not be called from the dispatcher thread or the Escape watcher:
+    /// [`Self::apply`] joins both. The `reset_chord_state` command is
+    /// declared `async` so Tauri runs it off the main thread, outside that
+    /// pair.
+    pub fn reset(&mut self) {
+        let bindings = self.bindings.clone();
+        self.apply(bindings);
+    }
+
     fn apply(&mut self, bindings: Bindings) {
+        // The Escape watcher belongs to the monitor session being torn down:
+        // once the dispatcher is gone, nothing will ever emit the
+        // `StopRecording` that would otherwise disarm it, so it would outlive
+        // every capture and keep an OS tap open for the rest of the process.
+        // This is the path the reset after an Escape-cancel takes; `Drop` does
+        // the same for itself. Safe to interleave with the dispatcher's own disarm:
+        // `disarm_escape_cancel` never holds the mutex across a join, so the
+        // dispatcher can't be stuck on it while we wait to join the dispatcher.
+        disarm_escape_cancel();
+
         // Tear down any existing matcher + dispatcher first. The
         // dispatcher sees the shutdown flag on its next recv_timeout
         // (≤100ms) and returns; joining waits for that. Dropping the
@@ -110,11 +150,13 @@ impl HotkeyMonitor {
             let _ = active.dispatcher.join();
         }
 
-        if bindings.values().all(|set| set.is_empty()) {
+        self.bindings = bindings;
+
+        if self.bindings.values().all(|set| set.is_empty()) {
             return;
         }
 
-        let matcher = match build_matcher(&bindings) {
+        let matcher = match build_matcher(&self.bindings) {
             Ok(m) => m,
             Err(err) => {
                 eprintln!(
@@ -141,6 +183,9 @@ impl HotkeyMonitor {
 
 impl Drop for HotkeyMonitor {
     fn drop(&mut self) {
+        // Same reason `apply` does it: nothing left alive would ever emit the
+        // `StopRecording` that disarms the watcher.
+        disarm_escape_cancel();
         if let Some(active) = self.active.take() {
             active.shutdown.store(true, Ordering::Relaxed);
             let _ = active.dispatcher.join();
@@ -225,6 +270,125 @@ fn process_event(
 }
 
 // ========================================================================
+// Escape-to-cancel
+// ========================================================================
+
+/// The Escape watcher currently armed, if any. Touched from the dispatcher
+/// thread (chord start/stop) and from whichever thread runs
+/// [`HotkeyMonitor::apply`], hence the mutex.
+static ESCAPE_WATCH: Mutex<Option<EscapeWatch>> = Mutex::new(None);
+
+struct EscapeWatch {
+    thread: Option<JoinHandle<()>>,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl Drop for EscapeWatch {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Start watching for a global Escape press, emitting `dictate:cancel` at
+/// the pill when one lands. No-op when already armed, so a PTT→toggle
+/// upgrade keeps the same tap instead of churning it.
+///
+/// Escape gets its own [`Tap`] rather than a third chord on the shared
+/// [`ChordMatcher`] because keytap suppresses every other registered chord
+/// while a Toggle chord is active — an Escape chord would go silent during
+/// exactly the hands-free sessions where cancelling matters most. Taps are
+/// read-only (evdev reads / a listen-only event tap), so Escape still
+/// reaches whatever app the user was typing in.
+///
+/// Armed only for the duration of a capture: outside a dictation there is
+/// no second tap open at all.
+pub fn arm_escape_cancel(app: &AppHandle) {
+    let mut slot = ESCAPE_WATCH.lock().unwrap_or_else(PoisonError::into_inner);
+    if slot.is_some() {
+        return;
+    }
+
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_for_thread = shutdown.clone();
+    let app = app.clone();
+    // Degrade the way the `Tap::new` failure below does. Panicking here would
+    // take down the dispatcher thread — which is what calls this — and poison
+    // the mutex, trading "no Esc-to-cancel" for "no global hotkey at all".
+    let thread = match thread::Builder::new()
+        .name("voicebox-escape-watch".into())
+        .spawn(move || escape_loop(app, shutdown_for_thread))
+    {
+        Ok(thread) => thread,
+        Err(err) => {
+            eprintln!(
+                "HotkeyMonitor: could not spawn the Escape watch thread ({err}). Esc-to-cancel is unavailable for this capture."
+            );
+            return;
+        }
+    };
+
+    *slot = Some(EscapeWatch {
+        thread: Some(thread),
+        shutdown,
+    });
+}
+
+/// Stop watching. Safe to call when nothing is armed.
+///
+/// Reached from the dispatcher on chord release and from
+/// [`HotkeyMonitor::apply`] — both ordered against the arm, so a stale
+/// disarm can never strip a freshly-started capture of its watcher.
+///
+/// The watcher is taken out of the slot and dropped *after* the guard is
+/// released: `EscapeWatch::drop` joins a thread that can be parked up to
+/// 100 ms in `recv_timeout`, and holding the mutex across that would stall
+/// chord dispatch and any concurrent arm.
+pub fn disarm_escape_cancel() {
+    let watch = ESCAPE_WATCH
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    drop(watch);
+}
+
+fn escape_loop(app: AppHandle, shutdown: Arc<AtomicBool>) {
+    let tap = match Tap::new() {
+        Ok(tap) => tap,
+        Err(err) => {
+            eprintln!(
+                "HotkeyMonitor: Escape tap failed ({err}). Esc-to-cancel is unavailable for this capture."
+            );
+            return;
+        }
+    };
+
+    // One cancel is all a capture can use. Without this, mashing Escape
+    // lands several `dictate:cancel`s before React has settled, and each one
+    // that slips past the pill's guard costs a full matcher teardown +
+    // rebuild. Keep looping rather than returning, so the slot still holds a
+    // live watcher for the disarm to take.
+    let mut cancelled = false;
+
+    while !shutdown.load(Ordering::Relaxed) {
+        match tap.recv_timeout(Duration::from_millis(100)) {
+            Ok(event) => {
+                if !cancelled && matches!(event.kind, EventKind::KeyDown(Key::Escape)) {
+                    if let Some(window) = app.get_webview_window(DICTATE_WINDOW_LABEL) {
+                        let _ = window.emit("dictate:cancel", ());
+                    }
+                    cancelled = true;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
+// ========================================================================
 // Effect → Tauri
 // ========================================================================
 
@@ -236,6 +400,8 @@ fn apply_effect(app: &AppHandle, effect: Effect) {
             // steal key focus and poison the reading. In practice those
             // calls leave keyWindow alone, but capturing first is free.
             let focus = focus_capture::capture_focus().ok();
+
+            arm_escape_cancel(app);
 
             if let Some(window) = app.get_webview_window(DICTATE_WINDOW_LABEL) {
                 // The previous hide-cycle parked the window off-screen and
@@ -263,11 +429,16 @@ fn apply_effect(app: &AppHandle, effect: Effect) {
             }
         }
         Effect::StopRecording(_) => {
+            disarm_escape_cancel();
             if let Some(window) = app.get_webview_window(DICTATE_WINDOW_LABEL) {
                 let _ = window.emit("dictate:stop", ());
             }
         }
         Effect::RestartRecording(_) => {
+            // Already armed by the Start this restart replaces; the call is
+            // a no-op, and is here so a Restart that somehow arrives first
+            // still gets a watcher.
+            arm_escape_cancel(app);
             if let Some(window) = app.get_webview_window(DICTATE_WINDOW_LABEL) {
                 let _ = window.emit("dictate:restart", ());
             }

@@ -172,6 +172,8 @@ export function GeneralPage() {
           }
         />
 
+        {platform.metadata.isTauri && <CloseToTrayRow />}
+
         {platform.metadata.isTauri && (
           <SettingRow
             title={t('settings.general.networkAccess.title')}
@@ -214,6 +216,61 @@ export function GeneralPage() {
 
       {platform.metadata.isTauri && <UpdatesSection />}
     </div>
+  );
+}
+
+/**
+ * Close-button behaviour. Worth surfacing because the default is surprising:
+ * closing the window leaves Voicebox — and the backend it spawned — running
+ * with only the tray icon to show for it. Owns its state rather than using
+ * the server store, since Rust is the source of truth and persists it.
+ */
+function CloseToTrayRow() {
+  const { t } = useTranslation();
+  const platform = usePlatform();
+  const { toast } = useToast();
+  const [closeToTray, setCloseToTray] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    platform.lifecycle
+      .getCloseToTray()
+      .then((value) => {
+        if (active) setCloseToTray(value);
+      })
+      .catch(() => {
+        /* keeps the default; the lifecycle layer already logged it */
+      });
+    return () => {
+      active = false;
+    };
+  }, [platform]);
+
+  return (
+    <SettingRow
+      title={t('settings.general.closeToTray.title')}
+      description={t('settings.general.closeToTray.description')}
+      htmlFor="closeToTray"
+      action={
+        <Toggle
+          id="closeToTray"
+          checked={closeToTray}
+          onCheckedChange={(checked: boolean) => {
+            setCloseToTray(checked);
+            platform.lifecycle.setCloseToTray(checked).catch(() => {
+              // Revert: leaving the toggle flipped would misrepresent what
+              // the close button is actually going to do.
+              setCloseToTray(!checked);
+              toast({
+                title: t('settings.general.closeToTray.failedTitle'),
+                description: t('settings.general.closeToTray.failedDescription'),
+                variant: 'destructive',
+              });
+            });
+          }}
+        />
+      }
+    />
   );
 }
 

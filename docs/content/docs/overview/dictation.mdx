@@ -59,6 +59,22 @@ session** without a gap in the audio. This is the single most useful detail of
 the chord system — short bursts feel fast, long-form narration feels
 hands-free, and there's no decision up front about which mode you wanted.
 
+## Canceling a capture
+
+**Press `Esc` while recording to throw the capture away.** The audio is
+discarded in the browser process — nothing is uploaded, no capture row is
+created, and nothing pastes into your app. The pill disappears immediately.
+
+`Esc` works from any app, not just Voicebox: while a recording is running,
+Voicebox opens a second read-only keyboard tap alongside the chord tap, so
+the pill can pick the key up without ever taking focus. The tap closes the
+moment the capture ends, and it never swallows the key — `Esc` still reaches
+whatever you were typing in.
+
+Cancel is only available while the pill reads `Recording`. Once transcription
+starts the capture is already on its way to the Captures tab; delete it from
+there instead.
+
 ## The on-screen pill
 
 While you're dictating, a floating pill appears over the current app. It walks
@@ -66,7 +82,7 @@ through the states of the capture cycle and shows live signals for each:
 
 | State | What it shows |
 |---|---|
-| `Recording` | Live waveform + elapsed time. |
+| `Recording` | Live waveform + elapsed time, and an `esc` chip you can click to cancel. |
 | `Transcribing` | Thinking waveform while Whisper runs. |
 | `Refining` | Same thinking waveform while the LLM cleans up the transcript (only if auto-refine is on). |
 | Error | Red tint. Click the pill to copy the error to your clipboard. Auto-dismisses. |

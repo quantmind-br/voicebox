@@ -102,6 +102,8 @@
       "speaking": "発話中",
       "completed": "完了",
       "stopAria": "録音を停止",
+      "cancelKey": "esc",
+      "cancelAria": "録音をキャンセル (Esc)",
       "errorFallback": "問題が発生しました",
       "errorCopyTooltip": "クリックでエラーをコピー"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "設定を更新しました",
         "runningDescription": "Voicebox 終了後もサーバーは動作し続けます",
         "stoppedDescription": "Voicebox 終了時にサーバーは停止します"
+      },
+      "closeToTray": {
+        "title": "ウィンドウを閉じたときに Voicebox をトレイに残す",
+        "description": "ウィンドウを閉じても終了せずに非表示になり、サーバーは動作し続けます。オフにすると、閉じるボタンで終了しサーバーも停止します。",
+        "failedTitle": "設定の更新に失敗しました",
+        "failedDescription": "閉じるボタンの設定を保存できませんでした。"
       },
       "networkAccess": {
         "title": "ネットワークアクセスを許可",

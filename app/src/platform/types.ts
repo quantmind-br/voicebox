@@ -60,6 +60,9 @@ export interface PlatformLifecycle {
   stopServer(): Promise<void>;
   restartServer(modelsDir?: string | null): Promise<string>;
   setKeepServerRunning(keep: boolean): Promise<void>;
+  /** Whether closing the main window hides it to the tray instead of quitting. */
+  getCloseToTray(): Promise<boolean>;
+  setCloseToTray(enabled: boolean): Promise<void>;
   setBackendOverride(backend?: string | null): Promise<void>;
   subscribeToServerLogs(callback: (entry: ServerLogEntry) => void): () => void;
   onServerReady?: () => void;

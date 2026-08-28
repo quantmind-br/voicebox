@@ -24,6 +24,15 @@ class WebLifecycle implements PlatformLifecycle {
     // No-op for web
   }
 
+  async getCloseToTray(): Promise<boolean> {
+    // No-op for web - there is no native window to close
+    return true;
+  }
+
+  async setCloseToTray(_enabled: boolean): Promise<void> {
+    // No-op for web - there is no native window to close
+  }
+
   async setBackendOverride(_backend?: string | null): Promise<void> {
     // No-op for web - backend variant is managed externally
   }

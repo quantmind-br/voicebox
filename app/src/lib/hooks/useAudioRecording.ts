@@ -67,6 +67,17 @@ export function useAudioRecording({
         },
       });
 
+      // getUserMedia can take hundreds of milliseconds — longer with a
+      // permission prompt up — and callers show a "recording" affordance the
+      // moment they call us. A cancel landing in that window must win, or the
+      // recording starts anyway and the user has to cancel a second time.
+      if (cancelledRef.current) {
+        stream.getTracks().forEach((track) => {
+          track.stop();
+        });
+        return;
+      }
+
       streamRef.current = stream;
 
       // Create MediaRecorder with preferred MIME type
@@ -177,8 +188,11 @@ export function useAudioRecording({
   }, [isRecording]);
 
   const cancelRecording = useCallback(() => {
+    // Outside the guard on purpose: with no MediaRecorder yet we're still
+    // inside startRecording's getUserMedia await, and this flag is what that
+    // path checks before it starts recording for real.
+    cancelledRef.current = true; // Must be set before stop() triggers onstop
     if (mediaRecorderRef.current) {
-      cancelledRef.current = true; // Must be set before stop() triggers onstop
       chunksRef.current = [];
       mediaRecorderRef.current.stop();
       setIsRecording(false);

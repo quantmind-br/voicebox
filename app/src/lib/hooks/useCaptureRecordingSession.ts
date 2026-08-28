@@ -76,6 +76,13 @@ export interface UseCaptureRecordingSessionResult {
   isRefining: boolean;
   startRecording: () => void;
   stopRecording: () => void;
+  /**
+   * Drop the in-flight recording without transcribing it — the audio is
+   * discarded client-side and no capture row is ever created. No-op unless
+   * ``pillState`` is 'recording', which covers the window where the pill is
+   * already up but the microphone hasn't opened yet.
+   */
+  cancelRecording: () => void;
   toggleRecording: () => void;
   dismissError: () => void;
   uploadFile: (file: File, source: CaptureSource) => void;
@@ -236,6 +243,7 @@ export function useCaptureRecordingSession(
     duration,
     startRecording: beginAudioRecording,
     stopRecording,
+    cancelRecording: discardAudioRecording,
     error: recordError,
   } = useAudioRecording({
     onRecordingComplete: (blob, recordedDuration) => {
@@ -274,6 +282,25 @@ export function useCaptureRecordingSession(
     beginAudioRecording();
   }, [isRecording, beginAudioRecording, clearRestTimer]);
 
+  // Escape (or the pill's cancel affordance) while recording: throw the
+  // audio away and take the pill straight back to hidden. Nothing was
+  // uploaded yet, so there's no server-side row to clean up — and no
+  // "Done"/error dwell to sit through, since the user asked for this.
+  const cancelRecording = useCallback(() => {
+    // Guarded on the pill state, not ``isRecording``: ``startRecording``
+    // flips the pill to 'recording' synchronously while ``isRecording`` only
+    // turns true once getUserMedia resolves. Gating on the hardware flag
+    // would silently drop any cancel arriving in that window — precisely
+    // when a mic-permission prompt is up and the user most wants out.
+    if (pillStateRef.current !== 'recording') return;
+    discardAudioRecording();
+    clearRestTimer();
+    clearErrorTimer();
+    setErrorMessage(null);
+    setFrozenElapsedMs(0);
+    setPillState('hidden');
+  }, [discardAudioRecording, clearRestTimer, clearErrorTimer]);
+
   const toggleRecording = useCallback(() => {
     if (isRecording) {
       stopRecording();
@@ -307,6 +334,7 @@ export function useCaptureRecordingSession(
     isRefining: refineMutation.isPending,
     startRecording,
     stopRecording,
+    cancelRecording,
     toggleRecording,
     dismissError,
     uploadFile,

@@ -102,6 +102,8 @@
       "speaking": "發話中",
       "completed": "完成",
       "stopAria": "停止錄音",
+      "cancelKey": "esc",
+      "cancelAria": "取消錄音 (Esc)",
       "errorFallback": "發生錯誤",
       "errorCopyTooltip": "點選複製錯誤訊息"
     },
@@ -783,6 +785,12 @@
         "updatedTitle": "設定已更新",
         "runningDescription": "結束 Voicebox 後伺服器將繼續執行",
         "stoppedDescription": "結束 Voicebox 時伺服器將停止"
+      },
+      "closeToTray": {
+        "title": "關閉視窗時將 Voicebox 保留在系統匣",
+        "description": "關閉視窗只會隱藏 Voicebox 而不結束，伺服器也會繼續執行。關閉此項後，點選關閉按鈕將結束並停止伺服器。",
+        "failedTitle": "更新設定失敗",
+        "failedDescription": "無法儲存關閉按鈕的偏好設定。"
       },
       "networkAccess": {
         "title": "允許網路存取",
